@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic BeeHive - Web Interface</title>
+    <link id="favicon-link" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ef4444' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='2' x2='12' y2='5'/%3E%3Ccircle cx='12' cy='2' r='1.1' fill='%23ef4444' stroke='none'/%3E%3Crect x='5' y='6' width='14' height='11' rx='3'/%3E%3Ccircle cx='9.5' cy='11.2' r='1.1' fill='%23ef4444' stroke='none'/%3E%3Ccircle cx='14.5' cy='11.2' r='1.1' fill='%23ef4444' stroke='none'/%3E%3Cline x1='9' y1='14.2' x2='15' y2='14.2'/%3E%3Cline x1='3.5' y1='10.5' x2='5' y2='10.5'/%3E%3Cline x1='19' y1='10.5' x2='20.5' y2='10.5'/%3E%3C/svg%3E">
+    <script src="./lib/tailwind.min.js"></script>
+    <link rel="stylesheet" href="theme.css">
+    <style>
+        .log-entry { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .terminal-line { font-family: 'Courier New', monospace; }
+        .workspace-panel { height: 37rem; }
+        .busy-robot { animation: robotBob 1.4s ease-in-out infinite; transform-origin: center; }
+        .busy-robot-eye { animation: robotBlink 1.8s steps(1, end) infinite; }
+        @keyframes robotBob {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-1.5px); }
+        }
+        @keyframes robotBlink {
+            0%, 84%, 100% { opacity: 1; }
+            85%, 92% { opacity: 0.25; }
+        }
+        .markdown-content p { margin: 0.35rem 0; }
+        .markdown-content ul,
+        .markdown-content ol { margin: 0.35rem 0 0.35rem 1.15rem; }
+        .markdown-content,
+        .markdown-content * { overflow-wrap: anywhere; word-break: break-word; }
+        .markdown-content code { background: #e5e7eb; border-radius: 0.25rem; padding: 0.05rem 0.25rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 0.875em; }
+        .markdown-content pre { background: #111827; color: #e5e7eb; border-radius: 0.5rem; padding: 0.65rem; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; margin: 0.5rem 0; }
+        .markdown-content pre code { background: transparent; color: inherit; padding: 0; }
+        .markdown-content blockquote { border-left: 3px solid #9ca3af; margin: 0.5rem 0; padding: 0.15rem 0 0.15rem 0.6rem; color: #4b5563; }
+        .markdown-content a { color: #2563eb; text-decoration: underline; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <!-- Header -->
+    <header class="bg-slate-800 text-white shadow">
+        <div class="container mx-auto max-w-7xl px-4 py-3">
+            <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <h1 class="text-2xl font-bold flex items-center gap-2">
+                        <span>Agentic BeeHive</span>
+                        <a id="update-available-badge"
+                           href="#"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="hidden rounded bg-amber-400/90 px-2 py-0.5 text-xs font-semibold text-slate-900 hover:bg-amber-300">
+                            new update is available
+                        </a>
+                    </h1>
+                    <div class="flex items-center gap-2">
+                        <div id="status-indicator" class="flex items-center gap-2">
+                            <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+                            <span>Ready</span>
+                        </div>
+                        <!-- Robot Head Icon as Navigation -->
+                        <a href="/dashboard.html"
+                           class="inline-flex items-center justify-center rounded p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                           title="Open dashboard"
+                           aria-label="Open dashboard">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                                <rect x="14" y="14" width="7" height="7" rx="1"></rect>                                
+                                </svg>
+                        </a>
+                        <a href="/settings.html"
+                           class="inline-flex items-center justify-center rounded p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                           title="Open settings"
+                           aria-label="Open settings">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1v.17a2 2 0 1 1-4 0V21a1.65 1.65 0 0 0-.33-1 1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H2.83a2 2 0 1 1 0-4H3a1.65 1.65 0 0 0 1-.33 1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 2.63l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V2.83a2 2 0 1 1 4 0V3a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 .6 1 1.65 1.65 0 0 0 1 .33h.17a2 2 0 1 1 0 4H21a1.65 1.65 0 0 0-1 .33 1.65 1.65 0 0 0-.6 1z"></path>
+                            </svg>
+                        </a>
+                        
+                    </div>
+                </div>
+                <div id="step-panel" class="rounded-lg bg-gray-700 px-4 py-3 hidden">
+                    <div class="flex justify-between text-sm text-gray-300 mb-2">
+                        <span id="step-counter">Project: (none) • Workflow: (none) • Step 0 of 0</span>
+                        <span id="step-name" class="font-medium text-white">Starting...</span>
+                    </div>
+                    <div class="w-full bg-gray-600 rounded-full h-3">
+                        <div id="progress-bar" class="bg-blue-400 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 container mx-auto p-4 pt-3 max-w-7xl">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- Chat/Message Section -->
+            <div class="bg-white rounded-lg shadow flex flex-col workspace-panel">
+                    <div class="p-3 border-b bg-gray-50 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <h2 class="font-semibold">Agent Messages</h2>
+                            <div class="flex items-center gap-2">
+                                <button id="view-current-step-btn"
+                                        class="rounded border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-50"
+                                        disabled>
+                                    View Current Step
+                                </button>
+                                <button id="view-current-ticket-btn"
+                                        class="hidden rounded border border-fuchsia-300 bg-fuchsia-50 px-3 py-1 text-xs font-semibold text-fuchsia-700 hover:bg-fuchsia-100 transition disabled:opacity-50"
+                                        disabled>
+                                    View Current Ticket
+                                </button>
+                            </div>
+                        </div>
+                        <div id="busy-indicator" class="inline-flex items-center gap-2 text-sm text-red-600 hidden">
+                            <svg class="busy-robot h-7 w-7 text-red-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <line x1="12" y1="2" x2="12" y2="5"></line>
+                                <circle cx="12" cy="2" r="1.1" fill="currentColor" stroke="none"></circle>
+                                <rect x="5" y="6" width="14" height="11" rx="3"></rect>
+                                <circle class="busy-robot-eye" cx="9.5" cy="11.2" r="1.1" fill="currentColor" stroke="none"></circle>
+                                <circle class="busy-robot-eye" cx="14.5" cy="11.2" r="1.1" fill="currentColor" stroke="none"></circle>
+                                <line x1="9" y1="14.2" x2="15" y2="14.2"></line>
+                                <line x1="3.5" y1="10.5" x2="5" y2="10.5"></line>
+                                <line x1="19" y1="10.5" x2="20.5" y2="10.5"></line>
+                            </svg>
+                            <span>LLM Busy</span>
+                            <button id="stop-btn" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition">
+                                Stop
+                            </button>
+                        </div>
+                    </div>
+                
+                <div id="chat-container" class="flex-1 overflow-y-auto p-4 space-y-3">
+                    <div class="text-gray-500 italic">Waiting for workflow to start...</div>
+                </div>
+
+                <div class="p-3 border-t bg-gray-50">
+                    <div id="input-area" class="flex gap-2">
+                        <input type="file" id="file-upload-input" class="hidden" multiple>
+                        <input type="text"
+                               id="user-input"
+                               class="flex-1 border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="Type your message (press Enter to send)..."
+                               disabled>
+                        <button id="send-btn"
+                                class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50"
+                                disabled>
+                            Send
+                        </button>
+                        <button id="upload-btn"
+                                class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition disabled:opacity-50"
+                                disabled>
+                            Upload
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Send feedback when a step pauses. Use Next Step in the workflow controls to continue.</p>
+                    <div id="selected-files" class="mt-2 text-xs text-gray-500 hidden"></div>
+                </div>
+            </div>
+
+            <!-- Terminal/Log Section -->
+            <div class="bg-gray-900 rounded-lg shadow flex flex-col workspace-panel">
+                <div class="p-3 border-b bg-slate-800 flex items-center justify-between gap-3">
+                    <h2 class="font-semibold text-white shrink-0">Execution Log</h2>
+                    <div class="flex items-center gap-2 ml-auto min-w-0">
+                        <select id="llm-server-select"
+                                class="w-28 max-w-28 rounded border border-gray-600 bg-gray-900 px-2 py-1 text-xs text-white truncate focus:outline-none focus:ring-2 focus:ring-cyan-500 sm:w-36 sm:max-w-36">
+                            <option value="">Server</option>
+                        </select>
+                        <!-- Autocomplete Model Selector -->
+                        <div class="relative w-32 max-w-32 sm:w-44 sm:max-w-44">
+                            <input id="llm-model-input"
+                                   type="text"
+                                   class="w-full rounded border border-gray-600 bg-gray-900 px-2 py-1 text-xs text-white truncate focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                                   placeholder="Search models..."
+                                   autocomplete="off">
+                            <div id="llm-model-dropdown"
+                                 class="absolute z-20 w-full mt-1 bg-gray-800 border border-gray-600 rounded shadow-lg max-h-60 overflow-y-auto hidden">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="terminal" class="flex-1 overflow-y-auto p-4 font-mono text-sm space-y-1">
+                    <div class="text-green-400">[SYSTEM] Agentic LLM Web Interface initialized</div>
+                    <div class="text-gray-400">[SYSTEM] Click 'Start Workflow' to begin</div>
+                </div>
+
+                <div class="p-3 border-t bg-slate-800">
+                    <div id="workflow-config-panel">
+                    <div class="mb-3">
+                        <label for="project-select" class="block text-xs font-semibold uppercase tracking-wide text-gray-300 mb-1">
+                            Project (Required)
+                        </label>
+                        <div class="flex gap-2">
+                            <select id="project-select"
+                                    class="flex-1 rounded border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">Loading projects...</option>
+                            </select>
+                            <button id="create-project-open-btn"
+                                    class="shrink-0 rounded bg-cyan-600 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition disabled:opacity-50">
+                                Create Project
+                            </button>
+                        </div>
+                        <p id="project-help" class="mt-1 text-xs text-gray-400">
+                            Select a project or create a new one.
+                        </p>
+                    </div>
+                    <div class="mb-3">
+                        <label for="workflow-type-select" class="block text-xs font-semibold uppercase tracking-wide text-gray-300 mb-1">
+                            Workflow Type (Required)
+                        </label>
+                        <select id="workflow-type-select"
+                                class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Loading workflow types...</option>
+                        </select>
+                        <p id="workflow-type-help" class="mt-1 text-xs text-gray-400">
+                            Select the workflow template to run before starting.
+                        </p>
+                    </div>
+                    </div>
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex flex-1 gap-2">
+                            <button id="start-btn" 
+                                    class="flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
+                                Start Workflow
+                            </button>
+                            <button id="continue-btn" 
+                                    class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 hidden"
+                                    disabled>
+                                Next Step
+                            </button>
+                            <button id="skip-btn"
+                                    class="px-4 py-2 bg-slate-600 text-white rounded hover:bg-slate-500 transition disabled:opacity-50 hidden"
+                                    disabled>
+                                Skip
+                            </button>
+                        </div>
+                        <div class="ml-auto flex items-center gap-2">
+                            <button id="new-project-btn"
+                                    class="px-3 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-500 transition disabled:opacity-50 hidden">
+                                New Workflow
+                            </button>
+                            <button id="switch-project-btn"
+                                    class="px-3 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-500 transition disabled:opacity-50 hidden"
+                                    disabled>
+                                Switch Project
+                            </button>
+                            <button id="reset-btn" 
+                                    class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500 transition hidden">
+                                Reset
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metrics Section -->
+        <div class="bg-white rounded-lg shadow p-4 mt-4">
+            <h2 class="text-lg font-semibold mb-3">Workflow Metrics</h2>
+            <div id="metrics-container" class="grid grid-cols-3 gap-4 text-center">
+                <div class="bg-gray-50 p-3 rounded">
+                    <div id="total-steps" class="text-2xl font-bold text-blue-600">0</div>
+                    <div class="text-sm text-gray-600">Total Steps</div>
+                </div>
+                <div class="bg-gray-50 p-3 rounded">
+                    <div id="successful-steps" class="text-2xl font-bold text-green-600">0</div>
+                    <div class="text-sm text-gray-600">Successful</div>
+                </div>
+                <div class="bg-gray-50 p-3 rounded">
+                    <div id="failed-steps" class="text-2xl font-bold text-red-600">0</div>
+                    <div class="text-sm text-gray-600">Failed</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="switch-project-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-3xl rounded-xl bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b px-4 py-3">
+                    <h3 class="text-lg font-semibold">Switch Project</h3>
+                    <button id="switch-project-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close switch project modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="px-4 py-3">
+                    <p class="text-sm text-gray-600">Select a project to load its saved workflow state.</p>
+                </div>
+                <div id="switch-project-list" class="max-h-[60vh] overflow-y-auto px-4 pb-4"></div>
+            </div>
+        </div>
+
+        <div id="create-project-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-lg rounded-xl bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b px-4 py-3">
+                    <div>
+                        <h3 class="text-lg font-semibold">Create Project</h3>
+                        <p class="mt-0.5 text-xs text-slate-500">Use letters, numbers, dashes, or underscores.</p>
+                    </div>
+                    <button id="create-project-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close create project modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="px-4 py-4 space-y-3">
+                    <div>
+                        <label for="project-name-input" class="block text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">
+                            Project Name
+                        </label>
+                        <input id="project-name-input"
+                               type="text"
+                               class="w-full rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                               placeholder="New project name (A-Z, 0-9, -, _)">
+                    </div>
+                    <div class="flex items-center justify-end gap-2">
+                        <button id="create-project-cancel-btn"
+                                class="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+                            Cancel
+                        </button>
+                        <button id="create-project-btn"
+                                class="rounded bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition">
+                            Create Project
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="skip-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-3xl rounded-xl bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b px-4 py-3">
+                    <div>
+                        <h3 class="text-lg font-semibold">Skip Step or Ticket</h3>
+                        <p id="skip-modal-subtitle" class="mt-0.5 text-xs text-slate-500">Choose what to skip.</p>
+                    </div>
+                    <button id="skip-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close skip modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="px-4 py-3">
+                    <div id="skip-modal-status" class="text-sm text-slate-600">Loading...</div>
+                </div>
+                <div id="skip-steps-list" class="max-h-[70vh] overflow-y-auto px-4 pb-4"></div>
+            </div>
+        </div>
+
+        <div id="llm-setup-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b px-5 py-4">
+                    <div class="flex items-center gap-3">
+                        <div class="rounded-lg bg-slate-900 p-2 text-white">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1v.17a2 2 0 1 1-4 0V21a1.65 1.65 0 0 0-.33-1 1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H2.83a2 2 0 1 1 0-4H3a1.65 1.65 0 0 0 1-.33 1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 2.63l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V2.83a2 2 0 1 1 4 0V3a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 .6 1 1.65 1.65 0 0 0 1 .33h.17a2 2 0 1 1 0 4H21a1.65 1.65 0 0 0-1 .33 1.65 1.65 0 0 0-.6 1z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-900">LLM Setup Required</h3>
+                            <p class="text-xs text-slate-500">Configure an LLM server before starting a workflow.</p>
+                        </div>
+                    </div>
+                    <button id="llm-setup-close-btn"
+                            class="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition"
+                            aria-label="Close LLM setup modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="px-5 py-4 space-y-3">
+                    <p class="text-sm text-slate-700">
+                        The web UI is connected to the API, but the configured LLM server is not reachable yet.
+                    </p>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Details</p>
+                        <p id="llm-setup-details" class="mt-1 text-sm text-slate-800 break-words">Pending</p>
+                    </div>
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
+                        <a id="llm-setup-settings-link"
+                           href="/settings.html"
+                           class="inline-flex items-center justify-center gap-2 rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 transition">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1v.17a2 2 0 1 1-4 0V21a1.65 1.65 0 0 0-.33-1 1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H2.83a2 2 0 1 1 0-4H3a1.65 1.65 0 0 0 1-.33 1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 2.63l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V2.83a2 2 0 1 1 4 0V3a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 .6 1 1.65 1.65 0 0 0 1 .33h.17a2 2 0 1 1 0 4H21a1.65 1.65 0 0 0-1 .33 1.65 1.65 0 0 0-.6 1z"></path>
+                            </svg>
+                            Open Settings
+                        </a>
+                        <button id="llm-setup-retry-btn"
+                                class="inline-flex items-center justify-center rounded border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+                            Retry connection
+                        </button>
+                        <a id="llm-setup-video-link"
+                           href="#"
+                           target="_blank"
+                           rel="noreferrer"
+                           class="hidden inline-flex items-center justify-center rounded border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+                            Watch setup video
+                        </a>
+                        <div class="text-xs text-slate-500 sm:ml-auto">
+                            Tip: after saving settings, refresh this page.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="content-view-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-4xl rounded-xl bg-white shadow-2xl">
+                <div class="flex items-start justify-between gap-3 border-b px-4 py-3">
+                    <div>
+                        <h3 id="content-view-title" class="text-lg font-semibold text-slate-900">Viewer</h3>
+                        <p id="content-view-subtitle" class="mt-0.5 text-xs text-slate-500">Current workflow context</p>
+                    </div>
+                    <button id="content-view-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close content viewer">
+                        ✕
+                    </button>
+                </div>
+                <div id="content-view-body" class="max-h-[70vh] overflow-y-auto px-4 py-4">
+                    <p class="text-sm text-slate-500">No content available.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="./lib/marked.min.js"></script>
+    <script src="./lib/dompurify.min.js"></script>
+    <script src="theme.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "appName": "Agentic BeeHive",
+  "version": "0.1.0",
+  "channel": "stable",
+  "updateManifestUrl": "https://raw.githubusercontent.com/NickTullos/AgenticBeeHive/main/src/version.json",
+  "releaseNotesUrl": "https://github.com/NickTullos/AgenticBeeHive/releases",
+  "publishedAtUtc": "2026-04-26T00:00:00Z",
+  "assets": {
+    "win-x64": "agenticbeehive-v0.1.0-build-win-x64.zip",
+    "win-arm64": "agenticbeehive-v0.1.0-build-win-arm64.zip",
+    "linux-x64": "agenticbeehive-v0.1.0-build-linux-x64.zip",
+    "linux-arm64": "agenticbeehive-v0.1.0-build-linux-arm64.zip",
+    "osx-x64": "agenticbeehive-v0.1.0-build-osx-x64.zip",
+    "osx-arm64": "agenticbeehive-v0.1.0-build-osx-arm64.zip"
+  }
+}

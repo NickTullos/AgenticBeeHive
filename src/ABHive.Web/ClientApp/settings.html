@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workflow Settings</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='2' x2='12' y2='5'/%3E%3Ccircle cx='12' cy='2' r='1.1' fill='%2394a3b8' stroke='none'/%3E%3Crect x='5' y='6' width='14' height='11' rx='3'/%3E%3Ccircle cx='9.5' cy='11.2' r='1.1' fill='%2394a3b8' stroke='none'/%3E%3Ccircle cx='14.5' cy='11.2' r='1.1' fill='%2394a3b8' stroke='none'/%3E%3Cline x1='9' y1='14.2' x2='15' y2='14.2'/%3E%3Cline x1='3.5' y1='10.5' x2='5' y2='10.5'/%3E%3Cline x1='19' y1='10.5' x2='20.5' y2='10.5'/%3E%3C/svg%3E">
+    <script src="./lib/tailwind.min.js"></script>
+    <link rel="stylesheet" href="theme.css">
+</head>
+<body class="min-h-screen bg-gray-100">
+    <header class="bg-slate-800 text-white shadow">
+        <div class="container mx-auto max-w-7xl px-4 py-3">
+            <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-3">
+                        <h1 class="text-2xl font-bold">Workflow Settings</h1>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <!-- Robot Head Icon as Navigation -->
+                        <a href="/index.html"
+                           class="inline-flex items-center justify-center rounded p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                           title="Back to Workflow"
+                           aria-label="Back to Workflow">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="2" x2="12" y2="5"></line>
+                                <circle cx="12" cy="2" r="1.1" fill="currentColor"></circle>
+                                <rect x="5" y="6" width="14" height="11" rx="3"></rect>
+                                <circle cx="9.5" cy="11.2" r="1.1" fill="currentColor"></circle>
+                                <circle cx="14.5" cy="11.2" r="1.1" fill="currentColor"></circle>
+                                <line x1="9" y1="14.2" x2="15" y2="14.2"></line>
+                                <line x1="3.5" y1="10.5" x2="5" y2="10.5"></line>
+                                <line x1="19" y1="10.5" x2="20.5" y2="10.5"></line>
+                            </svg>
+                        </a>
+                        <a href="/dashboard.html"
+                           class="inline-flex items-center justify-center rounded p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                           title="Open settings"
+                           aria-label="Open settings">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <main class="container mx-auto max-w-7xl p-4 flex-grow">
+            <!-- Theme Section -->
+            <section class="rounded-lg border border-slate-200 bg-slate-50 p-4 mb-6">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-700">Application Theme</h2>
+                        <p class="text-xs text-slate-600 mt-1">Choose the overall appearance of the application.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <select data-theme-switcher
+                                class="w-full sm:w-auto rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                aria-label="Theme switcher">
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+
+        <div class="bg-white rounded-lg shadow p-5">
+            <div id="save-status" class="hidden rounded border px-3 py-2 text-sm mb-4"></div>
+            
+            <p class="text-sm text-gray-600 mb-6">
+                Configure app settings saved to <code class="rounded bg-gray-100 px-1 py-0.5">appsettings.json</code>.
+                LLM endpoints are expected to use an OpenAI-compatible API format.
+            </p>
+
+            <form id="settings-form" class="space-y-4">
+
+                <!-- Actions Section (Always Visible) -->
+                <section class="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-700">Settings Actions</h2>
+                            <p class="text-xs text-slate-600">Reload from disk or save your current configuration.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button id="reload-btn" type="button" class="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-gray-100 transition">Reload</button>
+                            <button id="save-btn" type="submit" class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition">Save Settings</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Accordion Container -->
+                <div class="space-y-3">
+                    
+                    <!-- LLM Servers Accordion -->
+                    <div class="accordion-item border border-slate-200 rounded-lg overflow-hidden bg-white">
+                        <button type="button" class="accordion-header w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition">
+                            <h3 class="text-lg font-semibold text-slate-800">LLM Servers and Models</h3>
+                            <svg class="accordion-icon h-5 w-5 text-gray-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div class="accordion-content hidden border-t border-slate-200 p-4 space-y-4">
+                            <div id="llm-servers-container" class="space-y-4"></div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Default Active Server</span>
+                                    <select id="active-llm-server-id" name="activeLlmServerId" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Default Active Model</span>
+                                    <select id="active-llm-model-int" name="activeLlmModelId" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+                                </label>
+                            </div>
+
+	                            <div class="pt-2">
+	                                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+	                                    <div class="flex flex-wrap items-center gap-2">
+	                                        <button id="test-connection-btn" type="button" class="rounded bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 transition text-sm font-medium">Test Connection</button>
+	                                        <button id="test-model-btn" type="button" class="rounded bg-slate-800 px-4 py-2 text-white hover:bg-slate-700 transition text-sm font-medium">Test Model</button>
+	                                    </div>
+	                                    <div class="flex flex-col gap-1">
+	                                        <span id="test-connection-status" class="text-sm text-gray-600"></span>
+	                                        <span id="test-model-status" class="text-sm text-gray-600"></span>
+	                                    </div>
+	                                </div>
+	                            </div>
+
+                            <div class="pt-2 border-t border-slate-100">
+                                <button id="add-server-btn" type="button" class="rounded bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 transition">Add LLM Server</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- LLM Generation Parameters Accordion -->
+                    <div class="accordion-item border border-slate-200 rounded-lg overflow-hidden bg-white">
+                        <button type="button" class="accordion-header w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition">
+                            <h3 class="text-lg font-semibold text-slate-800">LLM Generation Parameters</h3>
+                            <svg class="accordion-icon h-5 w-5 text-gray-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div class="accordion-content hidden border-t border-slate-200 p-4 space-y-4">
+                            <p class="text-xs text-gray-500">Control how the LLM generates responses. These parameters are sent to the LLM with every request.</p>
+
+                            <!-- Temperature -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label for="llm-temperature" class="text-sm font-medium text-gray-700">Temperature</label>
+                                    <span id="llm-temperature-value" class="text-sm font-mono text-blue-600">0.7</span>
+                                </div>
+                                <input id="llm-temperature" type="range" min="0" max="2" step="0.1" value="0.7"
+                                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                                <p class="mt-1 text-xs text-gray-500">Controls randomness. Lower = more deterministic, Higher = more creative. Range: 0–2.</p>
+                            </div>
+
+                            <!-- TopP -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label for="llm-top-p" class="text-sm font-medium text-gray-700">Top P</label>
+                                    <span id="llm-top-p-value" class="text-sm font-mono text-blue-600">1.0</span>
+                                </div>
+                                <input id="llm-top-p" type="range" min="0" max="1" step="0.05" value="1.0"
+                                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                                <p class="mt-1 text-xs text-gray-500">Nucleus sampling cutoff. Lower = more focused. Range: 0–1.</p>
+                            </div>
+
+                            <!-- TopK -->
+                            <div>
+                                <label for="llm-top-k" class="block text-sm font-medium text-gray-700 mb-1">Top K</label>
+                                <input id="llm-top-k" type="number" min="0" value="0"
+                                       class="w-full sm:w-1/2 rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <p class="mt-1 text-xs text-gray-500">Limit token selection to top K options. 0 = disabled (use all tokens).</p>
+                            </div>
+
+                            <!-- MaxTokens -->
+                            <div>
+                                <label for="llm-max-tokens" class="block text-sm font-medium text-gray-700 mb-1">Max Tokens</label>
+                                <input id="llm-max-tokens" type="number" min="0" value="0"
+                                       class="w-full sm:w-1/2 rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <p class="mt-1 text-xs text-gray-500">Maximum tokens in the response. 0 = unlimited (model decides).</p>
+                            </div>
+
+                            <!-- Frequency Penalty -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label for="llm-frequency-penalty" class="text-sm font-medium text-gray-700">Frequency Penalty</label>
+                                    <span id="llm-frequency-penalty-value" class="text-sm font-mono text-blue-600">0</span>
+                                </div>
+                                <input id="llm-frequency-penalty" type="range" min="-2" max="2" step="0.1" value="0"
+                                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                                <p class="mt-1 text-xs text-gray-500">Penalize tokens based on frequency. Range: -2–2.</p>
+                            </div>
+
+                            <!-- Presence Penalty -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label for="llm-presence-penalty" class="text-sm font-medium text-gray-700">Presence Penalty</label>
+                                    <span id="llm-presence-penalty-value" class="text-sm font-mono text-blue-600">0</span>
+                                </div>
+                                <input id="llm-presence-penalty" type="range" min="-2" max="2" step="0.1" value="0"
+                                       class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                                <p class="mt-1 text-xs text-gray-500">Penalize tokens based on presence. Range: -2–2.</p>
+                            </div>
+
+                            <!-- Stop Sequences -->
+                            <div>
+                                <label for="llm-stop-sequences" class="block text-sm font-medium text-gray-700 mb-1">Stop Sequences</label>
+                                <input id="llm-stop-sequences" type="text" value=""
+                                       placeholder="e.g. &#10;, ###, STOP"
+                                       class="w-full rounded border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <p class="mt-1 text-xs text-gray-500">Comma-separated sequences that stop generation when encountered.</p>
+                            </div>
+
+                            <!-- Reset Button -->
+                            <div class="pt-2 border-t border-slate-100">
+                                <button id="llm-reset-btn" type="button"
+                                        class="rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-gray-100 transition">
+                                    Reset to Defaults
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Telegram Accordion -->
+                    <div class="accordion-item border border-slate-200 rounded-lg overflow-hidden bg-white">
+                        <button type="button" class="accordion-header w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition">
+                            <h3 class="text-lg font-semibold text-slate-800">Telegram Integration</h3>
+                            <svg class="accordion-icon h-5 w-5 text-gray-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div class="accordion-content hidden border-t border-slate-200 p-4 space-y-4">
+                            <div class="grid grid-cols-1 gap-3">
+                                <label class="inline-flex items-center gap-2 cursor-pointer">
+                                    <input id="telegram-enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                    <span class="text-sm font-medium text-gray-700">Enable Telegram Integration</span>
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Telegram Bot Token</span>
+                                    <div id="telegram-token-wrapper" class="mt-1 relative w-full">
+                                        <input id="telegram-bot-token" type="password" class="w-full rounded border border-gray-300 px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    </div>
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Telegram Chat ID</span>
+                                    <input id="telegram-chat-id" type="number" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Telegram Poll Timeout (seconds)</span>
+                                    <input id="telegram-poll-timeout-seconds" name="telegramPollTimeoutSeconds" type="number" min="1" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Messages to Send on Workflow Switch</span>
+                                    <input id="telegram-switch-context-message-count" name="telegramSwitchContextMessageCount" type="number" min="0" max="25" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <p class="mt-1 text-xs text-gray-500">Limits how many recent messages are forwarded when switching projects/workflows to avoid replay spam.</p>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Other/System Settings Accordion -->
+                    <div class="accordion-item border border-slate-200 rounded-lg overflow-hidden bg-white">
+                        <button type="button" class="accordion-header w-full flex items-center justify-between p-4 text-left hover:bg-gray-50 transition">
+                            <h3 class="text-lg font-semibold text-slate-800">System and Tool Settings</h3>
+                            <svg class="accordion-icon h-5 w-5 text-gray-500 transition-transform duration-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div class="accordion-content hidden border-t border-slate-200 p-4 space-y-4">
+                            <div class="grid grid-cols-1 gap-3">
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Default Workflow Directory</span>
+                                    <input id="steps-directory" name="stepsDirectory" type="text" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Workflow Types Directory</span>
+                                    <input id="workflow-types-directory" name="workflowTypesDirectory" type="text" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Log File Path</span>
+                                    <input id="log-file-int" name="logFilePath" type="text" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Default Tool Timeout (ms)</span>
+                                    <input id="default-tool-timeout-ms" name="defaultToolTimeoutMs" type="number" min="1" required class="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">LLM Inactivity Timeout (ms)</span>
+                                    <input id="llm-inactivity-timeout-ms" name="llmInactivityTimeoutMs" type="number" min="1" class="mt-1 w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <p class="mt-1 text-xs text-gray-500">Only applies when the LLM stops sending streamed chunks.</p>
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium text-gray-700">Project Root Directory</span>
+                                    <div class="mt-1 flex gap-2">
+                                        <input id="project-root-directory-text" name="projectRootDirectoryText" type="text" required class="w-full rounded border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <button id="browse-project-btn" type="button" class="rounded bg-slate-600 px-3 py-2 text-sm text-white hover:bg-slate-700 transition">Browse</button>
+                                    </div>
+                                    <p class="mt-1 text-xs text-gray-500">Default: ./projects</p>
+                                </label>
+                            </div>
+
+                            <div class="pt-4 border-t border-slate-100">
+                                <h4 class="text-sm font-semibold text-slate-700 mb-3">Enabled Tools</h4>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <label class="inline-flex items-center gap-2 rounded border border-gray-200 px-3 py-2 cursor-pointer hover:bg-gray-50 transition">
+                                        <input id="bash-enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span class="text-sm text-gray-700">Bash Tool</span>
+                                    </label>
+                                    <label class="inline-flex items-center gap-2 rounded border border-gray-200 px-3 py-2 cursor-pointer hover:bg-gray-50 transition">
+                                        <input id="web-fetch-enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span class="text-sm text-gray-700">WebFetch Tool</span>
+                                    </label>
+                                    <label class="inline-flex items-center gap-2 rounded border border-gray-200 px-3 py-2 cursor-pointer hover:bg-gray-50 transition">
+                                        <input id="read-file-enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span class="text-sm text-gray-700">ReadFile Tool</span>
+                                    </label>
+                                    <label class="inline-flex items-center gap-2 rounded border border-gray-200 px-3 py-2 cursor-pointer hover:bg-gray-50 transition">
+                                        <input id="write-file-enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                        <span class="text-sm text-gray-700">WriteFile Tool</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div> <!-- End Accordion Container -->
+
+            </form>
+        </div>
+    </main>
+
+    <script src="theme.js"></script>
+    <script src="settings.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "executionMode": "ticketIteration",
+  "ticketSource": "{{TICKETS_DIR}}/tickets.json",
+  "completedSource": "{{TICKETS_DIR}}/completed.json",
+  "maxRetriesPerTicket": 3
+}

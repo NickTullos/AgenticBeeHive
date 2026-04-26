@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic LLM - Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='2' x2='12' y2='5'/%3E%3Ccircle cx='12' cy='2' r='1.1' fill='%2394a3b8' stroke='none'/%3E%3Crect x='5' y='6' width='14' height='11' rx='3'/%3E%3Ccircle cx='9.5' cy='11.2' r='1.1' fill='%2394a3b8' stroke='none'/%3E%3Ccircle cx='14.5' cy='11.2' r='1.1' fill='%2394a3b8' stroke='none'/%3E%3Cline x1='9' y1='14.2' x2='15' y2='14.2'/%3E%3Cline x1='3.5' y1='10.5' x2='5' y2='10.5'/%3E%3Cline x1='19' y1='10.5' x2='20.5' y2='10.5'/%3E%3C/svg%3E">
+    <script src="./lib/tailwind.min.js"></script>
+    <link rel="stylesheet" href="theme.css">
+</head>
+<body class="min-h-screen bg-slate-100 flex flex-col">
+    <header class="bg-slate-800 text-white shadow">
+        <div class="container mx-auto max-w-7xl px-4 py-3">
+            <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="flex items-center gap-3">
+
+                        <h1 class="text-2xl font-bold">Project Dashboard</h1>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <!-- Robot Head Icon as Navigation -->
+                        <a href="/index.html"
+                           class="inline-flex items-center justify-center rounded p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                           title="Back to Workflow"
+                           aria-label="Back to Workflow">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="2" x2="12" y2="5"></line>
+                                <circle cx="12" cy="2" r="1.1" fill="currentColor"></circle>
+                                <rect x="5" y="6" width="14" height="11" rx="3"></rect>
+                                <circle cx="9.5" cy="11.2" r="1.1" fill="currentColor"></circle>
+                                <circle cx="14.5" cy="11.2" r="1.1" fill="currentColor"></circle>
+                                <line x1="9" y1="14.2" x2="15" y2="14.2"></line>
+                                <line x1="3.5" y1="10.5" x2="5" y2="10.5"></line>
+                                <line x1="19" y1="10.5" x2="20.5" y2="10.5"></line>
+                            </svg>
+                        </a>
+<a href="/settings.html"
+                           class="inline-flex items-center justify-center rounded p-1.5 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                           title="Open settings"
+                           aria-label="Open settings">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3"></circle>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto max-w-7xl p-4 flex-grow">
+        <button id="refresh-btn" class="rounded bg-cyan-600 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition">
+            Refresh
+        </button>
+        <div class="mb-3 flex items-center justify-between gap-2">
+            <p id="last-updated" class="text-sm text-slate-600">Last updated: --</p>
+            <p id="dashboard-status" class="text-sm text-slate-600"></p>
+        </div>
+
+        <section id="summary-strip" class="mb-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div class="rounded-lg bg-white p-3 shadow">
+                <div class="text-xs uppercase tracking-wide text-slate-500">Projects</div>
+                <div id="summary-total" class="text-2xl font-bold text-slate-800">0</div>
+            </div>
+            <div class="rounded-lg bg-white p-3 shadow">
+                <div class="text-xs uppercase tracking-wide text-slate-500">Pending</div>
+                <div id="summary-pending" class="text-2xl font-bold text-amber-600">0</div>
+            </div>
+            <div class="rounded-lg bg-white p-3 shadow">
+                <div class="text-xs uppercase tracking-wide text-slate-500">Planned</div>
+                <div id="summary-planned" class="text-2xl font-bold text-indigo-600">0</div>
+            </div>
+            <div class="rounded-lg bg-white p-3 shadow">
+                <div class="text-xs uppercase tracking-wide text-slate-500">In Progress</div>
+                <div id="summary-inprogress" class="text-2xl font-bold text-cyan-600">0</div>
+            </div>
+            <div class="rounded-lg bg-white p-3 shadow">
+                <div class="text-xs uppercase tracking-wide text-slate-500">Completed</div>
+                <div id="summary-completed" class="text-2xl font-bold text-emerald-600">0</div>
+            </div>
+        </section>
+
+        <section id="project-list" class="space-y-4">
+            <div class="rounded-lg bg-white p-4 shadow text-slate-600">
+                Loading dashboard data...
+            </div>
+        </section>
+
+        <div id="dashboard-content-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-4xl rounded-xl bg-white shadow-2xl">
+                <div class="flex items-start justify-between gap-3 border-b px-4 py-3">
+                    <div>
+                        <h3 id="dashboard-content-title" class="text-lg font-semibold text-slate-900">Ticket Viewer</h3>
+                        <p id="dashboard-content-subtitle" class="mt-0.5 text-xs text-slate-500">Project ticket details</p>
+                    </div>
+                    <button id="dashboard-content-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close dashboard ticket viewer">
+                        ✕
+                    </button>
+                </div>
+                <div id="dashboard-content-body" class="max-h-[70vh] overflow-y-auto px-4 py-4">
+                    <p class="text-sm text-slate-500">No content available.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="theme.js"></script>
+    <script src="dashboard.js"></script>
+</body>
+</html>

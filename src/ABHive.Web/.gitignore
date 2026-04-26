@@ -1,0 +1,10 @@
+# AgenticLLM.Web/.gitignore
+appsettings.json
+appsettings.Production.json
+logs/
+bin/
+obj/
+*.user
+*.csproj.user
+*.suo
+*.userosscache

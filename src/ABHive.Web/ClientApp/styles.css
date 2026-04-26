@@ -1,0 +1,51 @@
+body {
+    margin: 0;
+    padding: 0;
+}
+
+.container {
+    max-width: 1280px;
+    margin: 0 auto;
+}
+
+.btn {
+    @apply px-4 py-2 rounded transition;
+}
+
+.btn-primary {
+    @apply bg-blue-500 text-white hover:bg-blue-600;
+}
+
+.btn-success {
+    @apply bg-green-500 text-white hover:bg-green-600;
+}
+
+.btn-danger {
+    @apply bg-red-500 text-white hover:bg-red-600;
+}
+
+.log-entry {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.terminal-line {
+    font-family: 'Courier New', monospace;
+}
+
+.chat-user {
+    background-color: #dbeafe !important;
+}
+
+.chat-agent {
+    background-color: #f3f4f6 !important;
+}
+
+#chat-container {
+    display: flex;
+    flex-direction: column;
+}

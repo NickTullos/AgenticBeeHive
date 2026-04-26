@@ -1,0 +1,165 @@
+/* Theme runtime switcher styles: current | light | dark */
+
+html[data-theme="current"] {
+    color-scheme: light;
+}
+
+html[data-theme="light"] {
+    color-scheme: light;
+}
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+}
+
+/* Light theme: brighter surface while keeping layout intact */
+html[data-theme="light"] body {
+    background-color: #f8fafc !important;
+}
+
+html[data-theme="light"] .bg-gray-100,
+html[data-theme="light"] .bg-slate-100 {
+    background-color: #f8fafc !important;
+}
+
+html[data-theme="light"] .bg-white {
+    background-color: #ffffff !important;
+}
+
+/* Dark theme: override common Tailwind utility classes used by pages */
+html[data-theme="dark"] body {
+    background-color: #0b1220 !important;
+    color: #e5e7eb !important;
+}
+
+html[data-theme="dark"] .bg-gray-100,
+html[data-theme="dark"] .bg-slate-100 {
+    background-color: #0b1220 !important;
+}
+
+html[data-theme="dark"] .bg-white,
+html[data-theme="dark"] .bg-gray-50,
+html[data-theme="dark"] .bg-slate-50 {
+    background-color: #111827 !important;
+}
+
+html[data-theme="dark"] .bg-gray-800,
+html[data-theme="dark"] .bg-slate-800 {
+    background-color: #1f2937 !important;
+}
+
+html[data-theme="dark"] .bg-gray-900 {
+    background-color: #030712 !important;
+}
+
+html[data-theme="dark"] .bg-gray-700,
+html[data-theme="dark"] .bg-slate-700 {
+    background-color: #374151 !important;
+}
+
+html[data-theme="dark"] .bg-gray-600,
+html[data-theme="dark"] .bg-slate-600 {
+    background-color: #4b5563 !important;
+}
+
+html[data-theme="dark"] .text-gray-900,
+html[data-theme="dark"] .text-slate-900 {
+    color: #f9fafb !important;
+}
+
+html[data-theme="dark"] .text-gray-800,
+html[data-theme="dark"] .text-slate-800 {
+    color: #f3f4f6 !important;
+}
+
+html[data-theme="dark"] .text-gray-700,
+html[data-theme="dark"] .text-slate-700 {
+    color: #e5e7eb !important;
+}
+
+html[data-theme="dark"] .text-gray-600,
+html[data-theme="dark"] .text-slate-600 {
+    color: #d1d5db !important;
+}
+
+html[data-theme="dark"] .text-gray-500,
+html[data-theme="dark"] .text-slate-500,
+html[data-theme="dark"] .text-gray-400 {
+    color: #9ca3af !important;
+}
+
+html[data-theme="dark"] .text-gray-300,
+html[data-theme="dark"] .text-gray-200,
+html[data-theme="dark"] .text-white {
+    color: #f9fafb !important;
+}
+
+html[data-theme="dark"] .border-gray-100,
+html[data-theme="dark"] .border-slate-100 {
+    border-color: #1f2937 !important;
+}
+
+html[data-theme="dark"] .border-gray-200,
+html[data-theme="dark"] .border-slate-200,
+html[data-theme="dark"] .border-gray-300,
+html[data-theme="dark"] .border-slate-300,
+html[data-theme="dark"] .border-gray-600 {
+    border-color: #374151 !important;
+}
+
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+    background-color: #0b1220 !important;
+    color: #f9fafb !important;
+    border-color: #374151 !important;
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+    color: #9ca3af !important;
+}
+
+html[data-theme="dark"] .shadow {
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35) !important;
+}
+
+html[data-theme="dark"] .markdown-content a {
+    color: #60a5fa !important;
+}
+
+/* Password toggle button styles */
+#toggle-telegram-token,
+button[data-action="toggle-api-key"] {
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+#toggle-telegram-token:hover,
+button[data-action="toggle-api-key"]:hover {
+    background-color: #f3f4f6;
+    color: #1f2937;
+}
+
+html[data-theme="dark"] #toggle-telegram-token:hover,
+html[data-theme="dark"] button[data-action="toggle-api-key"]:hover {
+    background-color: #374151;
+}
+
+/* Accordion styles */
+.accordion-header {
+    transition: background-color 0.2s ease;
+}
+
+.accordion-header:hover {
+    background-color: #f3f4f6; /* gray-100 */
+}
+
+html[data-theme="dark"] .accordion-header:hover {
+    background-color: #374151;
+}
+
+.accordion-icon {
+    transition: transform 0.3s ease-out;
+}
