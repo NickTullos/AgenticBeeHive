@@ -6,12 +6,12 @@ This guide explains how to produce standalone release artifacts and how the app 
 
 - Builds self-contained standalone binaries for common OS/CPU targets.
 - Packages each target as a GitHub-upload-ready `.zip`.
-- Uses `solution/version.json` as the release source of truth.
+- Uses `solution/src/version.json` as the release source of truth.
 - Exposes `/api/version/check` so the UI can show `new update is available` at startup.
 
 ## Files Involved
 
-- `solution/version.json` — app version manifest used by build + update check
+- `solution/src/version.json` — app version manifest used by build + update check
 - `solution/build/build-release.sh` — macOS/Linux release build script
 - `solution/build/build-release.ps1` — PowerShell release build script
 - `solution/build/out/` — publish output per RID
@@ -122,7 +122,7 @@ Convenience launchers are also included:
 
 ## GitHub Release Workflow (Recommended)
 
-1. Bump `solution/version.json` (`version`, `publishedAtUtc`, URLs, assets).
+1. Bump `solution/src/version.json` (`version`, `publishedAtUtc`, URLs, assets).
 2. Run release script (`.sh` or `.ps1`).
 3. Upload zips from `solution/build/dist/` to a GitHub release.
 4. Commit/publish the updated remote `version.json` at your raw GitHub URL.

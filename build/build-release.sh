@@ -4,15 +4,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOLUTION_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROJECT_PATH="${SOLUTION_DIR}/src/ABHive.Web/ABHive.Web.csproj"
-VERSION_FILE="${SOLUTION_DIR}/version.json"
+VERSION_FILE=""
 OUT_DIR="${SCRIPT_DIR}/out"
 DIST_DIR="${SCRIPT_DIR}/dist"
 PACK_DIR="${DIST_DIR}/.pack"
 
 RIDS=("win-x64" "win-arm64" "linux-x64" "linux-arm64" "osx-x64" "osx-arm64")
 
-if [[ ! -f "${VERSION_FILE}" ]]; then
-  echo "Missing version file: ${VERSION_FILE}" >&2
+for candidate in \
+  "${SOLUTION_DIR}/src/version.json" \
+  "${SOLUTION_DIR}/version.json"
+do
+  if [[ -f "${candidate}" ]]; then
+    VERSION_FILE="${candidate}"
+    break
+  fi
+done
+
+if [[ -z "${VERSION_FILE}" ]]; then
+  echo "Missing version file. Checked: ${SOLUTION_DIR}/src/version.json and ${SOLUTION_DIR}/version.json" >&2
   exit 1
 fi
 

@@ -225,7 +225,9 @@ public sealed class VersionService
 
         var directCandidates = new[]
         {
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "version.json"),
             Path.Combine(Directory.GetCurrentDirectory(), "version.json"),
+            Path.Combine(AppContext.BaseDirectory, "src", "version.json"),
             Path.Combine(AppContext.BaseDirectory, "version.json")
         };
 
@@ -245,6 +247,12 @@ public sealed class VersionService
 
         foreach (var root in roots.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
+            var srcCandidate = Path.Combine(root!, "src", "version.json");
+            if (File.Exists(srcCandidate))
+            {
+                return srcCandidate;
+            }
+
             var candidate = Path.Combine(root!, "version.json");
             if (File.Exists(candidate))
             {

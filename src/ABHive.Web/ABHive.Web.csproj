@@ -57,7 +57,7 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </None>
-    <None Include="..\..\version.json" Link="version.json">
+    <None Include="..\version.json" Link="version.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>
@@ -70,7 +70,6 @@
   </ItemGroup>
 
   <Target Name="RemoveCliArtifactsFromPublish" AfterTargets="Publish">
-    <Delete Files="$(PublishDir)abHive;$(PublishDir)abHive.runtimeconfig.json;$(PublishDir)abHive.pdb"
-            TreatErrorsAsWarnings="true" />
+    <Delete Files="$(PublishDir)abHive;$(PublishDir)abHive.runtimeconfig.json;$(PublishDir)abHive.pdb" TreatErrorsAsWarnings="true" />
   </Target>
 </Project>

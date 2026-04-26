@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $solutionDir = Split-Path -Parent $scriptDir
 $projectPath = Join-Path $solutionDir 'src/ABHive.Web/ABHive.Web.csproj'
-$versionFile = Join-Path $solutionDir 'version.json'
+$versionFile = $null
 $outDir = Join-Path $scriptDir 'out'
 $distDir = Join-Path $scriptDir 'dist'
 $packDir = Join-Path $distDir '.pack'
@@ -19,8 +19,18 @@ $rids = @(
     'osx-arm64'
 )
 
-if (-not (Test-Path -LiteralPath $versionFile)) {
-    throw "Missing version file: $versionFile"
+foreach ($candidate in @(
+    (Join-Path $solutionDir 'src/version.json'),
+    (Join-Path $solutionDir 'version.json')
+)) {
+    if (Test-Path -LiteralPath $candidate) {
+        $versionFile = $candidate
+        break
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace([string]$versionFile)) {
+    throw "Missing version file. Checked '$solutionDir/src/version.json' and '$solutionDir/version.json'."
 }
 
 $versionManifest = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-Json
