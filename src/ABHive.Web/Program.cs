@@ -19,7 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Configure Kestrel - use default binding (will be overridden by appsettings if present)
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {
-    // serverOptions.ListenAnyIP(5001);
+    // serverOptions.ListenAnyIP(8335);
 });
 
 // Configuration
@@ -1940,7 +1940,7 @@ Console.WriteLine($"Steps directory: {settings.StepsDirectory}");
 Console.WriteLine($"Workflow types directory: {settings.WorkflowTypesDirectory}");
 Console.WriteLine($"Projects directory: {ResolveProjectsRoot(settings.ProjectRootDirectory, Directory.GetCurrentDirectory())}");
 Console.WriteLine();
-Console.WriteLine("Server starting on http://localhost:5001");
+Console.WriteLine("Server starting on http://localhost:8335");
 Console.WriteLine("Press Ctrl+C to stop");
 
 try
