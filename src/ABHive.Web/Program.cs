@@ -316,7 +316,7 @@ app.MapGet("/api/status", async (WebSocketHandler webSocketHandler, WorkflowStat
     });
 });
 
-app.MapGet("/api/workflow/state", async (WorkflowStateStore workflowStateStore) =>
+app.MapGet("/api/workflow/state", async (WorkflowStateStore workflowStateStore, AppSettings appSettings) =>
 {
     var hydration = await workflowStateStore.GetHydrationAsync();
     var snapshot = hydration.Snapshot;
@@ -368,7 +368,8 @@ app.MapGet("/api/workflow/state", async (WorkflowStateStore workflowStateStore) 
                 totalDurationMs = snapshot.Metrics.TotalDurationMs,
                 averageStepDurationMs = snapshot.Metrics.AverageStepDurationMs,
                 totalTokensUsed = snapshot.Metrics.TotalTokensUsed
-            }
+            },
+            appVersion = appSettings.CurrentVersion
         },
         history = hydration.History.Select(item => item.Message).ToList()
     });

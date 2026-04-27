@@ -2,8 +2,19 @@
 
 > A self-hosted web application for agentic LLM programming that loads MD files, executes steps using a local LLM, dynamically invokes tools, and provides real-time dashboard + Telegram bot integration.
 
-## 📚 Documentation Index
+## 📥 Precompiled Binaries
 
+Download ready-to-run binaries for your platform:
+
+| Platform | Download |
+|----------|----------|
+| **Windows** (x64) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist) |
+| **macOS** (Intel / Apple Silicon) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist) |
+| **Linux** (x64) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist) |
+
+> **Note:** All precompiled builds are hosted on the [AgenticBeeHive Releases](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist) page.
+
+## 📚 Documentation Index
 All documentation is located in the `docs/` directory:
 
 | Document | Description |

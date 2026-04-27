@@ -954,6 +954,12 @@ function applySnapshot(snapshot) {
     updateMetrics(snapshot.metrics);
     syncWorkflowTypePicker();
     syncProjectPicker();
+
+    // Display app version in the header
+    const versionEl = document.getElementById("app-version");
+    if (versionEl && snapshot.appVersion) {
+        versionEl.textContent = "v" + snapshot.appVersion;
+    }
 }
 
 function applyHydration(payload) {
