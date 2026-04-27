@@ -114,6 +114,11 @@ exit ${EXIT_CODE}
         } catch { }
     }
 
+    $logsPath = Join-Path $publishDir 'logs'
+    if (Test-Path -LiteralPath $logsPath) {
+        Remove-Item -LiteralPath $logsPath -Recurse -Force
+    }
+
     Write-Host "Packaging $zipName..."
     if (Test-Path -LiteralPath $packageRoot) { Remove-Item -LiteralPath $packageRoot -Recurse -Force }
     New-Item -ItemType Directory -Path $packageRoot | Out-Null

@@ -94,6 +94,8 @@ EOF
     chmod +x "${publish_dir}/start-abhive.command"
   fi
 
+  rm -rf "${publish_dir}/logs"
+
   echo "Packaging ${zip_name}..."
   rm -rf "${package_root}"
   mkdir -p "${package_root}"

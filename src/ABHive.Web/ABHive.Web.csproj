@@ -33,12 +33,15 @@
   <ItemGroup>
     <Compile Remove="projects\**\*.cs" />
     <Compile Remove="myapp\**\*.cs" />
+    <Compile Remove="logs\**\*.cs" />
     <Content Remove="projects\**\*" />
     <Content Remove="myapp\**\*" />
+    <Content Remove="logs\**\*" />
     <Content Remove="appsettings.json" />
     <Content Remove="appsettings.old.json" />
     <None Remove="projects\**\*" />
     <None Remove="myapp\**\*" />
+    <None Remove="logs\**\*" />
     <None Remove="appsettings.old.json" />
   </ItemGroup>
 

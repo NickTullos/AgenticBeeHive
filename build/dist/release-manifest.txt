@@ -1,11 +1,11 @@
 appName=Agentic BeeHive
 version=0.1.0
-generatedAtUtc=2026-04-27T01:58:53Z
+generatedAtUtc=2026-04-27T11:17:44Z
 
 sha256 filename
-1b3c6faa87d873644ab6ed1b9873dcf4dc495636e0c475db196f30a26b75d091 agenticbeehive-v0.1.0-build-win-x64.zip
-56643edc7b923729afa2d8c9eda51ccd76e5c8ab934f9435d739851989332928 agenticbeehive-v0.1.0-build-win-arm64.zip
-e908eddad1f007aea04f4d3178077fe3b612a4427a062938a195ae47cc293644 agenticbeehive-v0.1.0-build-linux-x64.zip
-57e79c05de14cb6a250506ee1276fd2c85c9e5f4c409c57543cc411c9975aa98 agenticbeehive-v0.1.0-build-linux-arm64.zip
-5139081cc7a2a86312ff23dcbde3ae1a4292e307a776aa7ff5240007e4b2ada8 agenticbeehive-v0.1.0-build-osx-x64.zip
-de4adb14bd26139a048a984eaf4e989417814b3787688d65ce7dafb73cf1f7ed agenticbeehive-v0.1.0-build-osx-arm64.zip
+948935f9b39d0484eda58af6e77350a589c2d51130f3f5fee1577fb95448ad27 agenticbeehive-v0.1.0-build-win-x64.zip
+63b0462098dbf1d969c5fb8ab23b747be792446f1abe4e1d1c4fc23e7c9af3a0 agenticbeehive-v0.1.0-build-win-arm64.zip
+eacc8d709847477b7b030226f24b92b0ca7e70f33c18c68c7faa32f79b3f2420 agenticbeehive-v0.1.0-build-linux-x64.zip
+680361b6c4caac26ee6a4944bd7e0c1bc0be9bf23650696939782f5158a5d380 agenticbeehive-v0.1.0-build-linux-arm64.zip
+6d95c85e75b27ebf0e78385823fe2f621d4ebfd12275b6ac4fe26b2897333237 agenticbeehive-v0.1.0-build-osx-x64.zip
+2cc117eb41a439a0c81200a2dfc7f47fd89f2c7b726851d1c6935c52f14d16b2 agenticbeehive-v0.1.0-build-osx-arm64.zip

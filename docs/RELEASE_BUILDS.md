@@ -89,6 +89,7 @@ All targets are published with:
 - `chmod +x abHive.Web` applied before zipping (when present)
 
 The build packages include the full `workflowtypes/` tree from the project.
+Runtime `logs/` files are excluded from publish artifacts and release zips.
 
 ## Verifying Output
 
