@@ -41,7 +41,9 @@
             <div class="flex flex-col gap-3">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <h1 class="text-2xl font-bold flex items-center gap-2">
-                        <span>Agentic BeeHive</span> <span id="app-version" class="text-xs text-gray-400"></span>
+                        <span>Agentic BeeHive</span>
+                        <span id="app-version" class="text-xs text-gray-400"></span>
+                        <span id="active-mode-badge" class="rounded bg-slate-700 px-2 py-0.5 text-xs font-semibold text-cyan-200">Workflow Mode</span>
                         <a id="update-available-badge"
                            href="#"
                            target="_blank"
@@ -128,6 +130,9 @@
                             <button id="stop-btn" class="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition">
                                 Stop
                             </button>
+                            <button id="stop-schedule-task-btn" class="hidden px-3 py-1 bg-orange-600 text-white rounded hover:bg-orange-700 transition">
+                                Stop All
+                            </button>
                         </div>
                     </div>
                 
@@ -188,44 +193,8 @@
                 </div>
 
                 <div class="p-3 border-t bg-slate-800">
-                    <div id="workflow-config-panel">
-                    <div class="mb-3">
-                        <label for="project-select" class="block text-xs font-semibold uppercase tracking-wide text-gray-300 mb-1">
-                            Project (Required)
-                        </label>
-                        <div class="flex gap-2">
-                            <select id="project-select"
-                                    class="flex-1 rounded border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">Loading projects...</option>
-                            </select>
-                            <button id="create-project-open-btn"
-                                    class="shrink-0 rounded bg-cyan-600 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition disabled:opacity-50">
-                                Create Project
-                            </button>
-                        </div>
-                        <p id="project-help" class="mt-1 text-xs text-gray-400">
-                            Select a project or create a new one.
-                        </p>
-                    </div>
-                    <div class="mb-3">
-                        <label for="workflow-type-select" class="block text-xs font-semibold uppercase tracking-wide text-gray-300 mb-1">
-                            Workflow Type (Required)
-                        </label>
-                        <select id="workflow-type-select"
-                                class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="">Loading workflow types...</option>
-                        </select>
-                        <p id="workflow-type-help" class="mt-1 text-xs text-gray-400">
-                            Select the workflow template to run before starting.
-                        </p>
-                    </div>
-                    </div>
                     <div class="flex items-center justify-between gap-2">
                         <div class="flex flex-1 gap-2">
-                            <button id="start-btn" 
-                                    class="flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition">
-                                Start Workflow
-                            </button>
                             <button id="continue-btn" 
                                     class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 hidden"
                                     disabled>
@@ -238,14 +207,9 @@
                             </button>
                         </div>
                         <div class="ml-auto flex items-center gap-2">
-                            <button id="new-project-btn"
-                                    class="px-3 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-500 transition disabled:opacity-50 hidden">
-                                New Workflow
-                            </button>
-                            <button id="switch-project-btn"
-                                    class="px-3 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-500 transition disabled:opacity-50 hidden"
-                                    disabled>
-                                Switch Project
+                            <button id="new-open-btn"
+                                    class="px-3 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-500 transition disabled:opacity-50">
+                                New
                             </button>
                             <button id="reset-btn" 
                                     class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500 transition hidden">
@@ -272,6 +236,92 @@
                 <div class="bg-gray-50 p-3 rounded">
                     <div id="failed-steps" class="text-2xl font-bold text-red-600">0</div>
                     <div class="text-sm text-gray-600">Failed</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="start-new-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-xl rounded-xl bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b px-4 py-3">
+                    <h3 class="text-lg font-semibold">Start New</h3>
+                    <button id="start-new-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close start new modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="space-y-3 p-4">
+                    <button id="new-project-btn"
+                            class="w-full rounded bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition disabled:opacity-50">
+                        New Workflow
+                    </button>
+                    <button id="schedule-btn"
+                            class="w-full rounded bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition disabled:opacity-50">
+                        Schedule Workflow / Benchmarks
+                    </button>
+                    <button id="switch-project-btn"
+                            class="w-full rounded bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition disabled:opacity-50">
+                        Switch Project
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="new-workflow-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-3xl rounded-xl bg-slate-800 shadow-2xl">
+                <div class="flex items-center justify-between border-b border-slate-700 px-4 py-3">
+                    <h3 class="text-lg font-semibold text-white">New Workflow</h3>
+                    <button id="new-workflow-close-btn"
+                            class="rounded px-2 py-1 text-slate-300 hover:bg-slate-700 hover:text-white transition"
+                            aria-label="Close new workflow modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="p-4">
+                    <div id="workflow-config-panel">
+                        <div class="mb-3">
+                            <label for="project-select" class="block text-xs font-semibold uppercase tracking-wide text-gray-300 mb-1">
+                                Project (Required)
+                            </label>
+                            <div class="flex gap-2">
+                                <select id="project-select"
+                                        class="flex-1 rounded border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">Loading projects...</option>
+                                </select>
+                                <button id="create-project-open-btn"
+                                        class="shrink-0 rounded bg-cyan-600 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition disabled:opacity-50">
+                                    Create
+                                </button>
+                            </div>
+                            <p id="project-help" class="mt-1 text-xs text-gray-400">
+                                Select a project or create a new one.
+                            </p>
+                        </div>
+                        <div class="mb-3">
+                            <label for="workflow-type-select" class="block text-xs font-semibold uppercase tracking-wide text-gray-300 mb-1">
+                                Workflow Type (Required)
+                            </label>
+                            <div class="flex gap-2">
+                                <select id="workflow-type-select"
+                                        class="flex-1 rounded border border-gray-600 bg-gray-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                    <option value="">Loading workflow types...</option>
+                                </select>
+                                <button id="manage-workflow-types-btn"
+                                        class="shrink-0 rounded bg-cyan-600 px-3 py-2 text-sm font-semibold text-white hover:bg-cyan-500 transition disabled:opacity-50">
+                                    Create
+                                </button>
+                            </div>
+                            <p id="workflow-type-help" class="mt-1 text-xs text-gray-400">
+                                Select the workflow template to run before starting.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end">
+                        <button id="start-btn"
+                                class="rounded bg-green-500 px-4 py-2 text-white hover:bg-green-600 transition">
+                            Start Workflow
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -330,6 +380,260 @@
             </div>
         </div>
 
+        <div id="schedule-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-5xl rounded-xl bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b px-4 py-3">
+                    <div>
+                        <h3 class="text-lg font-semibold">Schedules</h3>
+                        <p class="mt-0.5 text-xs text-slate-500">Start one schedule at a time in Schedule Mode.</p>
+                    </div>
+                    <button id="schedule-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close schedule modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="p-4">
+                    <div class="rounded-lg border border-slate-200">
+                        <div class="flex items-center justify-between border-b bg-slate-50 px-3 py-2">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Schedule List</p>
+                            <div class="flex items-center gap-2">
+                                <button id="schedule-open-editor-btn"
+                                        class="rounded bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-500 transition">
+                                    Create
+                                </button>
+                                <button id="schedule-refresh-btn"
+                                        class="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition">
+                                    Refresh
+                                </button>
+                            </div>
+                        </div>
+                        <div id="schedule-list" class="max-h-[60vh] overflow-y-auto p-3 text-sm text-slate-700">
+                            Loading schedules...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="schedule-editor-modal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-3xl rounded-xl bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b px-4 py-3">
+                    <div>
+                        <h3 class="text-lg font-semibold">Schedule Editor</h3>
+                        <p class="mt-0.5 text-xs text-slate-500">Create or update schedule configuration.</p>
+                    </div>
+                    <button id="schedule-editor-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close schedule editor modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="max-h-[75vh] space-y-4 overflow-y-auto p-4">
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                            <label for="schedule-editor-existing-select" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Existing Schedule</label>
+                            <select id="schedule-editor-existing-select" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="">(new schedule)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="schedule-editor-name-input" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Schedule Name</label>
+                            <input id="schedule-editor-name-input" type="text" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="schedule_name">
+                        </div>
+                    </div>
+                    <div>
+                        <label for="schedule-editor-workflow-select" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Workflow Type</label>
+                        <select id="schedule-editor-workflow-select" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                    </div>
+                    <div id="schedule-editor-steps-group" class="hidden">
+                        <div class="mb-1 flex items-center justify-between">
+                            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Workflow Steps</p>
+                            <p class="text-[11px] text-slate-500">Select steps to run</p>
+                        </div>
+                        <div id="schedule-editor-steps-list" class="max-h-48 overflow-y-auto rounded border border-slate-200 p-2 text-sm text-slate-700"></div>
+                    </div>
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                            <label for="schedule-editor-trigger-type" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Schedule Option</label>
+                            <select id="schedule-editor-trigger-type" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="specificTime">Start at specific time of day</option>
+                                <option value="frequency">Start at frequency</option>
+                                <option value="immediate">Start immediately</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="schedule-editor-schedule-type" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Type</label>
+                            <select id="schedule-editor-schedule-type" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <option value="regular">Regular</option>
+                                <option value="benchmark">Benchmark</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="schedule-editor-specific-time-group">
+                        <label for="schedule-editor-specific-time" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Specific Time (HH:mm:ss)</label>
+                        <input id="schedule-editor-specific-time" type="text" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="09:30:00">
+                    </div>
+                    <div id="schedule-editor-frequency-group" class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label for="schedule-editor-interval-hours" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hours</label>
+                            <input id="schedule-editor-interval-hours" type="number" min="0" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" value="0">
+                        </div>
+                        <div>
+                            <label for="schedule-editor-interval-minutes" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Minutes</label>
+                            <input id="schedule-editor-interval-minutes" type="number" min="0" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" value="0">
+                        </div>
+                        <div>
+                            <label for="schedule-editor-interval-seconds" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Seconds</label>
+                            <input id="schedule-editor-interval-seconds" type="number" min="0" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" value="0">
+                        </div>
+                    </div>
+                    <div id="schedule-editor-regular-group">
+                        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Regular Selection</p>
+                        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <select id="schedule-editor-regular-server" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                            <select id="schedule-editor-regular-model" class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"></select>
+                        </div>
+                    </div>
+                    <div id="schedule-editor-benchmark-group" class="hidden">
+                        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Benchmark Selections</p>
+                        <div id="schedule-editor-benchmark-list" class="max-h-56 overflow-y-auto rounded border border-slate-200 p-2 text-sm text-slate-700"></div>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <p id="schedule-editor-status" class="text-sm text-slate-600">Configure and save schedule.</p>
+                        <div class="flex gap-2">
+                            <button id="schedule-editor-cancel-btn" class="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">Cancel</button>
+                            <button id="schedule-editor-save-btn" class="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition">Save Schedule</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="workflow-editor-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="relative flex h-[80vh] max-h-[80vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+                <div class="flex shrink-0 items-center justify-between border-b px-4 py-3">
+                    <div>
+                        <h3 class="text-lg font-semibold">Workflow Builder</h3>
+                        <p class="mt-0.5 text-xs text-slate-500">Create workflow types and edit steps in-browser.</p>
+                    </div>
+                    <button id="workflow-editor-close-btn"
+                            class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                            aria-label="Close workflow editor modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 xl:grid-cols-12 xl:overflow-hidden">
+                    <div class="min-h-0 space-y-3 xl:col-span-3 xl:flex xl:flex-col xl:gap-3 xl:space-y-0">
+                        <div class="flex min-h-0 flex-col rounded-lg border border-slate-200 bg-white xl:flex-1">
+                            <div class="flex items-center justify-between border-b px-3 py-2">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Workflow Types</p>
+                                <button id="workflow-editor-open-create-btn"
+                                        class="rounded bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-500 transition disabled:opacity-50">
+                                    Create
+                                </button>
+                            </div>
+                            <div id="workflow-editor-workflows-list" class="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-sm text-slate-700">
+                                Loading workflow types...
+                            </div>
+                        </div>
+                        <div class="flex min-h-0 flex-col rounded-lg border border-slate-200 bg-white xl:flex-1">
+                            <div class="flex items-center justify-between border-b px-3 py-2">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Steps</p>
+                                <button id="workflow-editor-add-step-btn"
+                                        class="rounded bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-500 transition disabled:opacity-50">
+                                    Create
+                                </button>
+                            </div>
+                            <div id="workflow-editor-steps-list" class="min-h-0 flex-1 overflow-y-auto px-3 py-2 text-sm text-slate-700">
+                                Select a workflow type.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="min-h-0 space-y-3 xl:col-span-9 xl:flex xl:flex-col xl:gap-3 xl:space-y-0">
+                        <div class="shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <div class="grid grid-cols-1 gap-2 lg:grid-cols-12">
+                                <div class="lg:col-span-6">
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected Workflow</p>
+                                    <p id="workflow-editor-selected-workflow" class="mt-0.5 text-sm text-slate-800">(none)</p>
+                                </div>
+                                <div class="lg:col-span-6">
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected Step</p>
+                                    <p id="workflow-editor-selected-step" class="mt-0.5 text-sm text-slate-800">(none)</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="workflow-editor-editors-grid" class="grid min-h-0 grid-cols-1 gap-3 xl:flex-1 xl:grid-cols-1">
+                            <div class="flex min-h-0 flex-col rounded-lg border border-slate-200 bg-white">
+                                <div class="flex items-center justify-between border-b px-3 py-2">
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Step Markdown (.md)</p>
+                                    <button id="workflow-editor-create-iteration-btn"
+                                            class="hidden rounded bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-500 transition disabled:opacity-50">
+                                        Create Ticket Iteration
+                                    </button>
+                                </div>
+                                <textarea id="workflow-editor-markdown"
+                                          class="min-h-[18rem] flex-1 w-full resize-y rounded-b-lg border-0 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                          placeholder="Select or create a step to edit markdown content..."></textarea>
+                            </div>
+                            <div id="workflow-editor-metadata-panel" class="hidden flex min-h-0 flex-col rounded-lg border border-slate-200 bg-white">
+                                <div class="border-b px-3 py-2">
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Step Metadata (.json, optional)</p>
+                                </div>
+                                <textarea id="workflow-editor-metadata"
+                                          class="min-h-[18rem] flex-1 w-full resize-y rounded-b-lg border-0 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                          placeholder="{\"executionMode\":\"ticketIteration\"}"></textarea>
+                            </div>
+                        </div>
+                        <div class="flex shrink-0 items-center justify-between gap-2">
+                            <p id="workflow-editor-status" class="text-sm text-slate-600">Make a selection to begin editing.</p>
+                            <button id="workflow-editor-save-btn"
+                                    class="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition">
+                                Save Step
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="workflow-editor-create-modal" class="absolute inset-0 hidden items-center justify-center bg-black/50 p-4">
+                    <div class="w-full max-w-md rounded-xl bg-white shadow-2xl">
+                        <div class="flex items-center justify-between border-b px-4 py-3">
+                            <div>
+                                <h4 class="text-base font-semibold">Create Workflow</h4>
+                                <p class="mt-0.5 text-xs text-slate-500">Use letters, numbers, dashes, or underscores.</p>
+                            </div>
+                            <button id="workflow-editor-create-close-btn"
+                                    class="rounded px-2 py-1 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition"
+                                    aria-label="Close create workflow modal">
+                                ✕
+                            </button>
+                        </div>
+                        <div class="space-y-3 px-4 py-4">
+                            <div>
+                                <label for="workflow-editor-create-name-input" class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Workflow Name
+                                </label>
+                                <input id="workflow-editor-create-name-input"
+                                       type="text"
+                                       class="w-full rounded border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                       placeholder="workflow_name">
+                            </div>
+                            <div class="flex items-center justify-end gap-2">
+                                <button id="workflow-editor-create-cancel-btn"
+                                        class="rounded border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+                                    Cancel
+                                </button>
+                                <button id="workflow-editor-create-submit-btn"
+                                        class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 transition">
+                                    Create
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="skip-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
             <div class="w-full max-w-3xl rounded-xl bg-white shadow-2xl">
                 <div class="flex items-center justify-between border-b px-4 py-3">
@@ -360,8 +664,8 @@
                             </svg>
                         </div>
                         <div>
-                            <h3 class="text-lg font-semibold text-slate-900">LLM Setup Required</h3>
-                            <p class="text-xs text-slate-500">Configure an LLM server before starting a workflow.</p>
+                            <h3 id="llm-setup-title" class="text-lg font-semibold text-slate-900">LLM Setup Required</h3>
+                            <p id="llm-setup-subtitle" class="text-xs text-slate-500">Configure an LLM server before starting a workflow.</p>
                         </div>
                     </div>
                     <button id="llm-setup-close-btn"
@@ -402,6 +706,44 @@
                         <div class="text-xs text-slate-500 sm:ml-auto">
                             Tip: after saving settings, refresh this page.
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="ws-reconnect-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4">
+            <div class="w-full max-w-xl rounded-2xl bg-white shadow-2xl">
+                <div class="flex items-center justify-between border-b px-5 py-4">
+                    <div class="flex items-center gap-3">
+                        <div class="rounded-lg bg-amber-600 p-2 text-white">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M2 12h3l3 8 4-16 3 8h5"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-900">Connection Lost</h3>
+                            <p class="text-xs text-slate-500">Reconnect to continue receiving workflow updates.</p>
+                        </div>
+                    </div>
+                    <button id="ws-reconnect-close-btn"
+                            class="rounded px-2 py-1 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition"
+                            aria-label="Close websocket reconnect modal">
+                        ✕
+                    </button>
+                </div>
+                <div class="px-5 py-4 space-y-3">
+                    <p class="text-sm text-slate-700">
+                        The WebSocket connection to the app server was interrupted.
+                    </p>
+                    <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Details</p>
+                        <p id="ws-reconnect-details" class="mt-1 text-sm text-slate-800 break-words">WebSocket disconnected.</p>
+                    </div>
+                    <div class="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
+                        <button id="ws-reconnect-retry-btn"
+                                class="inline-flex items-center justify-center rounded bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-500 transition">
+                            Reconnect
+                        </button>
                     </div>
                 </div>
             </div>

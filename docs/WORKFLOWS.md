@@ -12,8 +12,9 @@ This guide explains how to author workflow types under `workflowtypes/`, includi
 6. [Example: Standard Step](#example-standard-step)
 7. [Built-in Workflow Types](#built-in-workflow-types)
 8. [Creating a Custom Workflow](#creating-a-custom-workflow)
-9. [Best Practices](#best-practices)
-10. [Troubleshooting](#troubleshooting)
+9. [In-App Workflow Builder (v1.0)](#in-app-workflow-builder-v10)
+10. [Best Practices](#best-practices)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -481,6 +482,83 @@ EOF
 2. Select `my_custom_workflow` from the workflow dropdown
 3. Click "Start Workflow"
 4. Monitor the dashboard for progress
+
+---
+
+## In-App Workflow Builder (v1.0)
+
+ABHive v1.0 includes a browser-based workflow editor directly in `index.html`.
+
+### Open the Builder
+
+1. In the main page, locate **Workflow Type (Required)**.
+2. Click **Create & Edit Workflows**.
+3. The **Workflow Builder** modal opens with:
+   - Workflow list pane
+   - Step list pane
+   - Markdown + metadata editors
+
+### Create a New Workflow Type
+
+1. In the **Workflow Types** panel, click **Create**.
+2. In the popup modal, enter a workflow id (letters, numbers, `-`, `_` only).
+3. Click **Create**.
+
+Result:
+- A new folder is created under `workflowtypes/<workflowId>/`
+- `Step1.md` is scaffolded
+
+### Add Steps to New or Existing Workflows
+
+1. Select a workflow in the left pane.
+2. In the **Steps** panel, click **Create**.
+3. Enter a step file name when prompted (the suggested `Step{N}.md` is prefilled).
+4. Confirm the prompt to create the step.
+
+Notes:
+- Step file names must end in `.md`.
+- Step execution order stays alphabetical by filename.
+
+### Remove Workflow Types or Steps
+
+- **Delete Workflow** removes the selected workflow directory and all step files.
+- **Delete Step** removes the selected `.md` step and its matching `.json` metadata file (if present).
+- Both delete actions require a confirmation dialog before execution.
+
+### Edit and Save Step Content
+
+1. Select a step from the steps pane.
+2. Edit **Step Markdown (.md)**.
+3. Optional: edit **Step Metadata (.json)**.
+4. Click **Save Step**.
+
+Save rules:
+- Markdown is required.
+- Metadata is optional.
+- Metadata must be valid JSON when present.
+- Clearing metadata removes the `.json` file for that step.
+- Unsaved changes trigger a confirmation when switching workflow/step or closing the modal.
+
+### Metadata Examples
+
+`standard`:
+
+```json
+{
+  "executionMode": "standard"
+}
+```
+
+`ticketIteration`:
+
+```json
+{
+  "executionMode": "ticketIteration",
+  "ticketSource": "{{TICKETS_DIR}}/tickets.json",
+  "completedSource": "{{TICKETS_DIR}}/completed.json",
+  "maxRetriesPerTicket": 3
+}
+```
 
 ---
 

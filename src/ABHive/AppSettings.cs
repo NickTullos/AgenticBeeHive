@@ -36,6 +36,7 @@ public class AppSettings
     public string LogFilePath { get; set; }
     public int DefaultToolTimeoutMs { get; set; }
     public int LlmInactivityTimeoutMs { get; set; }
+    public bool EnableBenchmarkHtmlOutput { get; set; }
     public bool TelegramEnabled { get; set; }
     public string TelegramBotToken { get; set; }
     public long TelegramChatId { get; set; }
@@ -69,6 +70,7 @@ public class AppSettings
         LogFilePath = DefaultLogFilePath;
         DefaultToolTimeoutMs = DefaultToolTimeoutMsValue;
         LlmInactivityTimeoutMs = DefaultLlmInactivityTimeoutMsValue;
+        EnableBenchmarkHtmlOutput = true;
         TelegramEnabled = false;
         TelegramBotToken = "";
         TelegramChatId = 0;
@@ -110,6 +112,7 @@ public class AppSettings
         LogFilePath = string.IsNullOrEmpty(logFilePath) ? DefaultLogFilePath : logFilePath;
         DefaultToolTimeoutMs = defaultToolTimeoutMs <= 0 ? DefaultToolTimeoutMsValue : defaultToolTimeoutMs;
         LlmInactivityTimeoutMs = DefaultLlmInactivityTimeoutMsValue;
+        EnableBenchmarkHtmlOutput = true;
         TelegramEnabled = false;
         TelegramBotToken = "";
         TelegramChatId = 0;

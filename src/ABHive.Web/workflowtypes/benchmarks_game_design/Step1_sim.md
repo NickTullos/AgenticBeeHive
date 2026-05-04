@@ -8,6 +8,7 @@ TASK:
 Generate a single complete HTML file for an animated dancing SVG robot.
 
 REQUIREMENTS:
+- Do not read or write outside of {{PROJECT_ROOT}} 
 - Output only the HTML file content.
 - Use only HTML, CSS, SVG, and vanilla JavaScript.
 - Include an SVG robot with distinct head, body, arms, legs, eyes, and antenna.
@@ -22,7 +23,7 @@ RULES:
 - Do not ask questions.
 - Do not use external libraries, CDNs, images, build tools, or network calls.
 - Output must start with <!DOCTYPE html> and end with </html>.
-- Save the results to a file called step1-benchmark.html
+- Save the results to a file called step1-benchmark.html in folder {{SOLUTION_DIR}}
 
 DONE CRITERIA:
 - The HTML can be saved as a single .html file and opened directly in a browser.

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -27,6 +28,7 @@ public class MessageTypes
     public const string ToolExecution = "tool_execution";
     public const string Busy = "busy";
     public const string Log = "log";
+    public const string LogLink = "log_link";
 }
 
 public class AgentMessage
@@ -71,6 +73,8 @@ public class WebSocketHandler
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly bool _debugMode;
     private WorkflowMetrics? _lastMetrics;
+    private string _lastRunProjectDirectory = string.Empty;
+    private string _lastRunProjectName = string.Empty;
 
     private CancellationTokenSource? _workflowCts;
     private Task? _workflowTask;
@@ -229,7 +233,17 @@ public class WebSocketHandler
         }
     }
 
-    public async Task<bool> StartWorkflowAsync(string? workflowTypeId = null)
+    public Task<bool> StartWorkflowAsync(string? workflowTypeId = null)
+    {
+        return StartWorkflowAsyncInternal(workflowTypeId, null);
+    }
+
+    public Task<bool> StartWorkflowAsync(WorkflowTypeDefinition workflowType)
+    {
+        return StartWorkflowAsyncInternal(workflowType?.Id, workflowType);
+    }
+
+    private async Task<bool> StartWorkflowAsyncInternal(string? workflowTypeId, WorkflowTypeDefinition? workflowTypeOverride)
     {
         var hydration = await _workflowStateStore.GetHydrationAsync();
         var activeStep = await _workflowStateStore.GetActiveStepAsync();
@@ -260,7 +274,7 @@ public class WebSocketHandler
                 "orange");
         }
 
-        var workflowType = ResolveWorkflowTypeForStart(workflowTypeId, hydration.Snapshot);
+        var workflowType = workflowTypeOverride ?? ResolveWorkflowTypeForStart(workflowTypeId, hydration.Snapshot);
         if (workflowType == null)
         {
             await PublishAsync(
@@ -332,6 +346,10 @@ public class WebSocketHandler
     {
         try
         {
+            var startHydration = await _workflowStateStore.GetHydrationAsync();
+            _lastRunProjectDirectory = startHydration.Snapshot.SelectedProjectDirectory ?? string.Empty;
+            _lastRunProjectName = startHydration.Snapshot.SelectedProjectName ?? string.Empty;
+
             lock (_queueLock)
             {
                 _isAwaitingUserInput = false;
@@ -436,6 +454,8 @@ public class WebSocketHandler
                     snapshot.CanResume = hasTicketResume;
                     snapshot.NextStepToRun = hasTicketResume ? metrics.ResumeStepNumber : 0;
                 });
+
+            await PublishStatsLinkIfAvailableAsync("completed", _lastRunProjectDirectory);
         }
         catch (OperationCanceledException)
         {
@@ -1720,6 +1740,8 @@ public class WebSocketHandler
                         turnResult.FinalResponse.ReasoningContent);
                 }
 
+                await PublishConversationTurnTokenStatsAsync(activeStep.StepNumber, turnResult);
+
                 pendingInput = null;
             }
         }
@@ -1862,6 +1884,9 @@ public class WebSocketHandler
                 ApplyStepMetrics(snapshot.Metrics, result, success: true);
                 ApplyTicketProgressSnapshot(snapshot, result.TicketProgress);
             });
+
+        await WriteStepBenchmarkReportAsync(stepNumber, result, "completed");
+        await PublishPerMessageTokenStatsAsync(stepNumber, result, "completed");
     }
 
     public async Task PublishStepFailedAsync(int stepNumber, string error, StepExecutionResult result)
@@ -1894,6 +1919,8 @@ public class WebSocketHandler
                 ApplyTicketProgressSnapshot(snapshot, result.TicketProgress);
             });
 
+        await WriteStepBenchmarkReportAsync(stepNumber, result, "failed");
+        await PublishPerMessageTokenStatsAsync(stepNumber, result, "failed");
         await PublishBusyStateAsync(false);
     }
 
@@ -2697,6 +2724,8 @@ public class WebSocketHandler
                 snapshot.CanResume = snapshot.CurrentStep > 0 && snapshot.CurrentStep <= snapshot.TotalSteps;
                 snapshot.NextStepToRun = snapshot.CanResume ? snapshot.CurrentStep : 0;
             });
+
+        await PublishStatsLinkIfAvailableAsync("failed", _lastRunProjectDirectory);
     }
 
     private async Task ForceStopRuntimeStateAsync(string status, string color)
@@ -2742,6 +2771,8 @@ public class WebSocketHandler
                     : (snapshot.CanResume ? snapshot.CurrentStep : 0);
             });
 
+        await PublishStatsLinkIfAvailableAsync("stopped", _lastRunProjectDirectory);
+
     async Task PublishTelegramCommandAsync(string command, string responseMessage)
     {
         // Publish the command itself as a user message from Telegram source
@@ -2751,5 +2782,285 @@ public class WebSocketHandler
         await PublishLogAsync(responseMessage, "cyan");
     }
 
+    }
+
+    private async Task PublishStatsLinkIfAvailableAsync(string status, string? projectRootOverride = null)
+    {
+        if (!_settings.EnableBenchmarkHtmlOutput)
+        {
+            await PublishLogAsync("[STATS] benchmark.html output is disabled in settings.", "gray");
+            return;
+        }
+
+        var hydration = await _workflowStateStore.GetHydrationAsync();
+        var projectRoot = string.IsNullOrWhiteSpace(projectRootOverride)
+            ? hydration.Snapshot.SelectedProjectDirectory
+            : projectRootOverride;
+        if (string.IsNullOrWhiteSpace(projectRoot))
+        {
+            await PublishLogAsync("[STATS] No selected project directory; benchmark report link not available.", "gray");
+            return;
+        }
+
+        var fullProjectRoot = Path.GetFullPath(projectRoot);
+        if (!Directory.Exists(fullProjectRoot))
+        {
+            await PublishLogAsync($"[STATS] Project directory does not exist; benchmark report link not available: {fullProjectRoot}", "gray");
+            return;
+        }
+
+        var statsPath = Path.GetFullPath(Path.Combine(fullProjectRoot, "stats", "benchmark.html"));
+        if (!IsSubPathOf(statsPath, fullProjectRoot))
+        {
+            await PublishLogAsync("[STATS] Stats link was blocked because the resolved path escaped project scope.", "red");
+            return;
+        }
+
+        if (!File.Exists(statsPath))
+        {
+            await EnsureBenchmarkHtmlReportExistsAsync(fullProjectRoot, statsPath, status);
+        }
+
+        if (!File.Exists(statsPath))
+        {
+            await PublishLogAsync($"[STATS] benchmark.html not found for this run: {statsPath}", "gray");
+            return;
+        }
+
+        await PublishAsync(CreateMessage(MessageTypes.LogLink, new
+        {
+            message = "[STATS] Open benchmark report",
+            path = statsPath,
+            color = "cyan",
+            status
+        }));
+    }
+
+    private async Task EnsureBenchmarkHtmlReportExistsAsync(string projectRoot, string statsPath, string status)
+    {
+        try
+        {
+            var hydration = await _workflowStateStore.GetHydrationAsync();
+            var snapshot = hydration.Snapshot;
+            var metrics = snapshot.Metrics ?? new WorkflowMetrics();
+            var now = DateTimeOffset.Now;
+            var statsDirectory = Path.GetDirectoryName(statsPath);
+            if (string.IsNullOrWhiteSpace(statsDirectory))
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(statsDirectory);
+
+            var html = $$"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="UTF-8" />
+              <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+              <title>Benchmark Report</title>
+              <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #0f172a; background: #f8fafc; }
+                .card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+                .title { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
+                .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+                .label { color: #475569; font-size: 0.9rem; }
+                .value { font-weight: 600; }
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <div class="title">Benchmark Report</div>
+                <div class="grid">
+                  <div><span class="label">Generated:</span> <span class="value">{{WebUtility.HtmlEncode(now.ToString("yyyy-MM-dd HH:mm:ss zzz"))}}</span></div>
+                  <div><span class="label">Status:</span> <span class="value">{{WebUtility.HtmlEncode(status)}}</span></div>
+                  <div><span class="label">Project:</span> <span class="value">{{WebUtility.HtmlEncode(snapshot.SelectedProjectName ?? "")}}</span></div>
+                  <div><span class="label">Workflow Type:</span> <span class="value">{{WebUtility.HtmlEncode(snapshot.SelectedWorkflowTypeName ?? snapshot.SelectedWorkflowTypeId ?? "")}}</span></div>
+                  <div><span class="label">Server:</span> <span class="value">{{WebUtility.HtmlEncode(_settings.GetActiveLlmServer().Name)}}</span></div>
+                  <div><span class="label">Model:</span> <span class="value">{{WebUtility.HtmlEncode(_settings.GetActiveLlmModelName())}}</span></div>
+                  <div><span class="label">Total Steps:</span> <span class="value">{{metrics.TotalSteps}}</span></div>
+                  <div><span class="label">Successful Steps:</span> <span class="value">{{metrics.SuccessfulSteps}}</span></div>
+                  <div><span class="label">Failed Steps:</span> <span class="value">{{metrics.FailedSteps}}</span></div>
+                  <div><span class="label">Total Duration (ms):</span> <span class="value">{{metrics.TotalDurationMs}}</span></div>
+                  <div><span class="label">Average Step Duration (ms):</span> <span class="value">{{metrics.AverageStepDurationMs:F2}}</span></div>
+                  <div><span class="label">Total Tokens Used:</span> <span class="value">{{metrics.TotalTokensUsed}}</span></div>
+                  <div><span class="label">Tokens/Sec:</span> <span class="value">{{FormatTokensPerSecond(metrics.TotalTokensUsed, metrics.TotalDurationMs)}}</span></div>
+                </div>
+              </div>
+            </body>
+            </html>
+            """;
+
+            await File.WriteAllTextAsync(statsPath, html);
+            await PublishLogAsync($"[STATS] Created benchmark report: {statsPath}", "cyan");
+        }
+        catch (Exception ex)
+        {
+            await PublishLogAsync($"[STATS] Failed to generate benchmark.html automatically: {ex.Message}", "red");
+        }
+    }
+
+    private static bool IsSubPathOf(string candidatePath, string rootPath)
+    {
+        var root = EnsureTrailingSeparator(Path.GetFullPath(rootPath));
+        var candidate = EnsureTrailingSeparator(Path.GetFullPath(candidatePath));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return candidate.StartsWith(root, comparison);
+    }
+
+    private static string EnsureTrailingSeparator(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        if (value.EndsWith(Path.DirectorySeparatorChar) || value.EndsWith(Path.AltDirectorySeparatorChar))
+        {
+            return value;
+        }
+
+        return value + Path.DirectorySeparatorChar;
+    }
+
+    private async Task WriteStepBenchmarkReportAsync(int stepNumber, StepExecutionResult result, string status)
+    {
+        if (!_settings.EnableBenchmarkHtmlOutput)
+        {
+            return;
+        }
+
+        var hydration = await _workflowStateStore.GetHydrationAsync();
+        var projectRoot = hydration.Snapshot.SelectedProjectDirectory;
+        if (string.IsNullOrWhiteSpace(projectRoot))
+        {
+            return;
+        }
+
+        var fullProjectRoot = Path.GetFullPath(projectRoot);
+        if (!Directory.Exists(fullProjectRoot))
+        {
+            return;
+        }
+
+        var statsDirectory = Path.GetFullPath(Path.Combine(fullProjectRoot, "stats"));
+        if (!IsSubPathOf(statsDirectory, fullProjectRoot))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(statsDirectory);
+        var stepPath = Path.GetFullPath(Path.Combine(statsDirectory, $"step{stepNumber}-benchmark.html"));
+        if (!IsSubPathOf(stepPath, fullProjectRoot))
+        {
+            return;
+        }
+
+        var usage = result.LLMResponse?.Usage ?? new TokenUsage();
+        var promptTokens = usage.PromptTokens > 0 ? usage.PromptTokens : EstimateTokens(result.RequestMessagesContent);
+        var completionTokens = usage.CompletionTokens > 0 ? usage.CompletionTokens : EstimateTokens(result.ResponseContent);
+        var totalTokens = usage.TotalTokens > 0 ? usage.TotalTokens : promptTokens + completionTokens;
+        var tps = FormatTokensPerSecond(completionTokens, result.DurationMs);
+        var now = DateTimeOffset.Now;
+
+        var html = $$"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Step {{stepNumber}} Benchmark</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: #0f172a; background: #f8fafc; }
+            .card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+            .title { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
+            .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; }
+            .label { color: #475569; font-size: 0.9rem; }
+            .value { font-weight: 600; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="title">Step {{stepNumber}} Benchmark</div>
+            <div class="grid">
+              <div><span class="label">Generated:</span> <span class="value">{{WebUtility.HtmlEncode(now.ToString("yyyy-MM-dd HH:mm:ss zzz"))}}</span></div>
+              <div><span class="label">Status:</span> <span class="value">{{WebUtility.HtmlEncode(status)}}</span></div>
+              <div><span class="label">Project:</span> <span class="value">{{WebUtility.HtmlEncode(hydration.Snapshot.SelectedProjectName ?? "")}}</span></div>
+              <div><span class="label">Workflow Type:</span> <span class="value">{{WebUtility.HtmlEncode(hydration.Snapshot.SelectedWorkflowTypeName ?? hydration.Snapshot.SelectedWorkflowTypeId ?? "")}}</span></div>
+              <div><span class="label">Server:</span> <span class="value">{{WebUtility.HtmlEncode(_settings.GetActiveLlmServer().Name)}}</span></div>
+              <div><span class="label">Model:</span> <span class="value">{{WebUtility.HtmlEncode(_settings.GetActiveLlmModelName())}}</span></div>
+              <div><span class="label">Duration (ms):</span> <span class="value">{{result.DurationMs}}</span></div>
+              <div><span class="label">Prompt Tokens:</span> <span class="value">{{promptTokens}}</span></div>
+              <div><span class="label">Completion Tokens:</span> <span class="value">{{completionTokens}}</span></div>
+              <div><span class="label">Total Tokens:</span> <span class="value">{{totalTokens}}</span></div>
+              <div><span class="label">Tokens/Sec:</span> <span class="value">{{tps}}</span></div>
+            </div>
+          </div>
+        </body>
+        </html>
+        """;
+
+        await File.WriteAllTextAsync(stepPath, html);
+    }
+
+    private static int EstimateTokens(IEnumerable<string>? texts)
+    {
+        if (texts == null)
+        {
+            return 0;
+        }
+
+        var totalChars = texts.Where(item => !string.IsNullOrWhiteSpace(item)).Sum(item => item.Length);
+        return totalChars <= 0 ? 0 : Math.Max(1, (int)Math.Ceiling(totalChars / 4.0));
+    }
+
+    private static int EstimateTokens(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        return Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
+    }
+
+    private async Task PublishPerMessageTokenStatsAsync(int stepNumber, StepExecutionResult result, string status)
+    {
+        var usage = result.LLMResponse?.Usage ?? new TokenUsage();
+        var promptTokens = usage.PromptTokens > 0 ? usage.PromptTokens : EstimateTokens(result.RequestMessagesContent);
+        var completionTokens = usage.CompletionTokens > 0 ? usage.CompletionTokens : EstimateTokens(result.ResponseContent);
+        var totalTokens = usage.TotalTokens > 0 ? usage.TotalTokens : promptTokens + completionTokens;
+        var tps = FormatTokensPerSecond(completionTokens, result.DurationMs);
+        var durationSeconds = result.DurationMs > 0 ? (result.DurationMs / 1000.0).ToString("F2") : "0.00";
+
+        await PublishLogAsync(
+            $"[STATS] Step {stepNumber} message ({status}): prompt={promptTokens}, completion={completionTokens}, total={totalTokens}, duration={durationSeconds}s, tok/s={tps}",
+            "cyan");
+    }
+
+    public async Task PublishConversationTurnTokenStatsAsync(int stepNumber, StepConversationTurnResult result)
+    {
+        var promptTokens = result.PromptTokens > 0 ? result.PromptTokens : 0;
+        var completionTokens = result.CompletionTokens > 0
+            ? result.CompletionTokens
+            : EstimateTokens(result.FinalResponse?.Content);
+        var totalTokens = result.TotalTokens > 0 ? result.TotalTokens : promptTokens + completionTokens;
+        var tps = FormatTokensPerSecond(completionTokens, result.DurationMs);
+        var durationSeconds = result.DurationMs > 0 ? (result.DurationMs / 1000.0).ToString("F2") : "0.00";
+
+        await PublishLogAsync(
+            $"[STATS] Step {stepNumber} message (reply): prompt={promptTokens}, completion={completionTokens}, total={totalTokens}, duration={durationSeconds}s, tok/s={tps}",
+            "cyan");
+    }
+
+    private static string FormatTokensPerSecond(int completionTokens, long durationMs)
+    {
+        if (completionTokens <= 0 || durationMs <= 0)
+        {
+            return "n/a";
+        }
+
+        var perSecond = completionTokens / Math.Max(durationMs / 1000.0, 0.001);
+        return $"{perSecond:F2}";
     }
 }

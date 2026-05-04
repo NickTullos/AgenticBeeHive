@@ -84,6 +84,8 @@ if (File.Exists(configPath))
 
     if (root.TryGetProperty("LlmInactivityTimeoutMs", out var llmTimeout))
         settings.LlmInactivityTimeoutMs = llmTimeout.GetInt32();
+    if (root.TryGetProperty("EnableBenchmarkHtmlOutput", out var enableBenchmarkHtmlOutput))
+        settings.EnableBenchmarkHtmlOutput = enableBenchmarkHtmlOutput.GetBoolean();
 
     if (root.TryGetProperty("LlmTemperature", out var llmTemperature))
         settings.LlmTemperature = llmTemperature.GetDouble();
@@ -169,13 +171,20 @@ catch
     projectsRoot = ResolveProjectsRoot(settings.ProjectRootDirectory, Directory.GetCurrentDirectory());
 }
 EnsureWorkspaceDirectories(projectsRoot);
+var schedulesRoot = ResolveScheduleRoot(Directory.GetCurrentDirectory());
+Directory.CreateDirectory(schedulesRoot);
 
 // Services
 builder.Services.AddSingleton<AppSettings>(settings);
 builder.Services.AddSingleton<WorkflowTypeCatalog>();
+builder.Services.AddSingleton<WorkflowTypeEditorService>();
 builder.Services.AddSingleton<VersionService>();
 builder.Services.AddSingleton(sp =>
     new ProjectWorkspaceService(projectsRoot));
+builder.Services.AddSingleton(sp =>
+    new ScheduleDefinitionService(schedulesRoot));
+builder.Services.AddSingleton<ScheduleRunnerService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ScheduleRunnerService>());
 builder.Services.AddSingleton<ProjectDashboardService>();
 builder.Services.AddSingleton<TicketIterationStatusResolver>();
 builder.Services.AddSingleton<IToolCache, ToolCache>();
@@ -215,7 +224,8 @@ builder.Services.AddTransient<IWorkflowOrchestrator>(sp =>
         SendLlmResponseAsync = webSocketHandler.PublishLlmResponseAsync,
         SendLlmResponseWithReasoningAsync = webSocketHandler.PublishLlmResponseAsync,
         SendToolRequestAsync = webSocketHandler.PublishToolRequestAsync,
-        SendToolExecutionAsync = webSocketHandler.PublishToolExecutionAsync
+        SendToolExecutionAsync = webSocketHandler.PublishToolExecutionAsync,
+        SendConversationTurnStatsAsync = webSocketHandler.PublishConversationTurnTokenStatsAsync
     };
     return orchestrator;
 });
@@ -277,10 +287,11 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseRouting();
 
 // API endpoints - Minimal APIs
-app.MapGet("/api/status", async (WebSocketHandler webSocketHandler, WorkflowStateStore workflowStateStore) =>
+app.MapGet("/api/status", async (WebSocketHandler webSocketHandler, WorkflowStateStore workflowStateStore, ScheduleRunnerService scheduleRunnerService) =>
 {
     var hydration = await workflowStateStore.GetHydrationAsync();
     var snapshot = hydration.Snapshot;
+    var scheduleRuntime = scheduleRunnerService.GetRuntimeState();
 
     return Results.Ok(new
     {
@@ -312,14 +323,18 @@ app.MapGet("/api/status", async (WebSocketHandler webSocketHandler, WorkflowStat
         },
         status = snapshot.Status,
         color = snapshot.Color,
-        connectedClients = webSocketHandler.ConnectedClients
+        connectedClients = webSocketHandler.ConnectedClients,
+        activeMode = scheduleRuntime.IsActive ? "schedule" : "workflow",
+        scheduleState = MapScheduleState(scheduleRuntime)
     });
 });
 
-app.MapGet("/api/workflow/state", async (WorkflowStateStore workflowStateStore, AppSettings appSettings) =>
+app.MapGet("/api/workflow/state", async (WorkflowStateStore workflowStateStore, VersionService versionService, ScheduleRunnerService scheduleRunnerService) =>
 {
     var hydration = await workflowStateStore.GetHydrationAsync();
     var snapshot = hydration.Snapshot;
+    var localVersion = versionService.GetLocalVersionManifest().Version;
+    var scheduleRuntime = scheduleRunnerService.GetRuntimeState();
 
     return Results.Ok(new
     {
@@ -369,7 +384,9 @@ app.MapGet("/api/workflow/state", async (WorkflowStateStore workflowStateStore, 
                 averageStepDurationMs = snapshot.Metrics.AverageStepDurationMs,
                 totalTokensUsed = snapshot.Metrics.TotalTokensUsed
             },
-            appVersion = appSettings.CurrentVersion
+            appVersion = localVersion,
+            activeMode = scheduleRuntime.IsActive ? "schedule" : "workflow",
+            scheduleState = MapScheduleState(scheduleRuntime)
         },
         history = hydration.History.Select(item => item.Message).ToList()
     });
@@ -482,6 +499,329 @@ app.MapGet("/api/workflowtypes", (WorkflowTypeCatalog workflowTypeCatalog) =>
         .ToList();
 
     return Results.Ok(new { workflowTypes = items });
+});
+
+app.MapPost("/api/workflowtypes", (CreateWorkflowTypeRequest? request, WorkflowTypeEditorService workflowTypeEditorService) =>
+{
+    if (request == null)
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "request_body_required", "Request body is required.");
+    }
+
+    var result = workflowTypeEditorService.CreateWorkflowType(request.WorkflowTypeId, request.Template);
+    if (!result.Success)
+    {
+        return BuildWorkflowEditorErrorResponse(result.ErrorKind, result.Message);
+    }
+
+    return Results.Ok(new
+    {
+        success = true,
+        workflowType = new
+        {
+            id = result.WorkflowTypeId,
+            name = result.WorkflowTypeName,
+            stepCount = 1
+        },
+        createdFiles = result.CreatedFiles
+    });
+});
+
+app.MapDelete("/api/workflowtypes/{workflowTypeId}", (string workflowTypeId, WorkflowTypeEditorService workflowTypeEditorService) =>
+{
+    if (!workflowTypeEditorService.TryValidateWorkflowTypeId(workflowTypeId, out var normalizedWorkflowTypeId, out var validationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", validationError);
+    }
+
+    var result = workflowTypeEditorService.DeleteWorkflowType(normalizedWorkflowTypeId);
+    if (!result.Success)
+    {
+        return BuildWorkflowEditorErrorResponse(result.ErrorKind, result.Message);
+    }
+
+    return Results.Ok(new
+    {
+        success = true,
+        workflowTypeId = result.WorkflowTypeId,
+        message = result.Message
+    });
+});
+
+app.MapGet("/api/workflowtypes/{workflowTypeId}/steps", (string workflowTypeId, WorkflowTypeEditorService workflowTypeEditorService) =>
+{
+    if (!workflowTypeEditorService.TryValidateWorkflowTypeId(workflowTypeId, out var normalizedWorkflowTypeId, out var validationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", validationError);
+    }
+
+    var result = workflowTypeEditorService.GetSteps(normalizedWorkflowTypeId);
+    if (!result.Success)
+    {
+        return BuildWorkflowEditorErrorResponse(result.ErrorKind, result.Message);
+    }
+
+    return Results.Ok(new
+    {
+        success = true,
+        workflowTypeId = result.WorkflowTypeId,
+        steps = result.Steps.Select((step, index) => new
+        {
+            stepNumber = index + 1,
+            stepFileName = step.StepFileName,
+            hasMetadata = step.HasMetadata,
+            metadataFileName = step.MetadataFileName
+        }).ToList()
+    });
+});
+
+app.MapPost("/api/workflowtypes/{workflowTypeId}/steps", (string workflowTypeId, AddWorkflowTypeStepRequest? request, WorkflowTypeEditorService workflowTypeEditorService) =>
+{
+    if (!workflowTypeEditorService.TryValidateWorkflowTypeId(workflowTypeId, out var normalizedWorkflowTypeId, out var workflowValidationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", workflowValidationError);
+    }
+
+    var result = workflowTypeEditorService.AddStep(normalizedWorkflowTypeId, request?.StepFileName, request?.Template);
+    if (!result.Success)
+    {
+        return BuildWorkflowEditorErrorResponse(result.ErrorKind, result.Message);
+    }
+
+    return Results.Ok(new
+    {
+        success = true,
+        workflowTypeId = result.WorkflowTypeId,
+        step = new
+        {
+            stepFileName = result.StepFileName,
+            markdownContent = result.MarkdownContent,
+            hasMetadata = result.HasMetadata,
+            metadataJsonContent = result.MetadataJsonContent
+        },
+        createdFiles = result.CreatedFiles
+    });
+});
+
+app.MapGet("/api/workflowtypes/{workflowTypeId}/steps/{stepFileName}", (string workflowTypeId, string stepFileName, WorkflowTypeEditorService workflowTypeEditorService) =>
+{
+    if (!workflowTypeEditorService.TryValidateWorkflowTypeId(workflowTypeId, out var normalizedWorkflowTypeId, out var workflowValidationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", workflowValidationError);
+    }
+
+    if (!workflowTypeEditorService.TryValidateStepFileName(stepFileName, out var normalizedStepFileName, out var stepValidationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", stepValidationError);
+    }
+
+    var result = workflowTypeEditorService.GetStepContent(normalizedWorkflowTypeId, normalizedStepFileName);
+    if (!result.Success)
+    {
+        return BuildWorkflowEditorErrorResponse(result.ErrorKind, result.Message);
+    }
+
+    return Results.Ok(new
+    {
+        success = true,
+        workflowTypeId = result.WorkflowTypeId,
+        stepFileName = result.StepFileName,
+        markdownContent = result.MarkdownContent,
+        hasMetadata = result.HasMetadata,
+        metadataJsonContent = result.MetadataJsonContent
+    });
+});
+
+app.MapPut("/api/workflowtypes/{workflowTypeId}/steps/{stepFileName}", (string workflowTypeId, string stepFileName, SaveWorkflowTypeStepRequest? request, WorkflowTypeEditorService workflowTypeEditorService) =>
+{
+    if (request == null)
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "request_body_required", "Request body is required.");
+    }
+
+    if (!workflowTypeEditorService.TryValidateWorkflowTypeId(workflowTypeId, out var normalizedWorkflowTypeId, out var workflowValidationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", workflowValidationError);
+    }
+
+    if (!workflowTypeEditorService.TryValidateStepFileName(stepFileName, out var normalizedStepFileName, out var stepValidationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", stepValidationError);
+    }
+
+    if (request.MarkdownContent is null)
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", "markdownContent is required.");
+    }
+
+    var result = workflowTypeEditorService.SaveStep(
+        normalizedWorkflowTypeId,
+        normalizedStepFileName,
+        request.MarkdownContent,
+        request.MetadataJsonContent);
+    if (!result.Success)
+    {
+        return BuildWorkflowEditorErrorResponse(result.ErrorKind, result.Message);
+    }
+
+    return Results.Ok(new
+    {
+        success = true,
+        workflowTypeId = result.WorkflowTypeId,
+        stepFileName = result.StepFileName,
+        message = result.Message
+    });
+});
+
+app.MapDelete("/api/workflowtypes/{workflowTypeId}/steps/{stepFileName}", (string workflowTypeId, string stepFileName, WorkflowTypeEditorService workflowTypeEditorService) =>
+{
+    if (!workflowTypeEditorService.TryValidateWorkflowTypeId(workflowTypeId, out var normalizedWorkflowTypeId, out var workflowValidationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", workflowValidationError);
+    }
+
+    if (!workflowTypeEditorService.TryValidateStepFileName(stepFileName, out var normalizedStepFileName, out var stepValidationError))
+    {
+        return BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", stepValidationError);
+    }
+
+    var result = workflowTypeEditorService.DeleteStep(normalizedWorkflowTypeId, normalizedStepFileName);
+    if (!result.Success)
+    {
+        return BuildWorkflowEditorErrorResponse(result.ErrorKind, result.Message);
+    }
+
+    return Results.Ok(new
+    {
+        success = true,
+        workflowTypeId = result.WorkflowTypeId,
+        stepFileName = result.StepFileName,
+        message = result.Message
+    });
+});
+
+app.MapGet("/api/schedules", (ScheduleDefinitionService scheduleDefinitionService, ScheduleRunnerService scheduleRunnerService) =>
+{
+    var schedules = scheduleDefinitionService.ListSchedules();
+    var runtime = scheduleRunnerService.GetRuntimeState();
+    return Results.Ok(new
+    {
+        schedules = schedules.Select(schedule => new
+        {
+            scheduleName = schedule.ScheduleName,
+            workflowTypeId = schedule.WorkflowTypeId,
+            triggerType = schedule.TriggerType,
+            scheduleType = schedule.ScheduleType,
+            updatedUtc = schedule.UpdatedUtc,
+            status = schedule.Status,
+            error = schedule.Error
+        }).ToList(),
+        scheduleState = MapScheduleState(runtime)
+    });
+});
+
+app.MapGet("/api/schedules/{scheduleName}", (string scheduleName, ScheduleDefinitionService scheduleDefinitionService) =>
+{
+    var lookup = scheduleDefinitionService.GetScheduleLookup(scheduleName);
+    if (lookup.Status == "invalid_name")
+    {
+        return Results.BadRequest(new { success = false, message = lookup.Error ?? "Invalid schedule name." });
+    }
+
+    if (lookup.Status == "corrupted")
+    {
+        return Results.BadRequest(new { success = false, message = lookup.Error ?? $"Schedule '{scheduleName}' is corrupted." });
+    }
+
+    if (lookup.Status != "ready" || lookup.Definition == null)
+    {
+        return Results.NotFound(new { success = false, message = $"Schedule '{scheduleName}' was not found." });
+    }
+
+    return Results.Ok(new { schedule = lookup.Definition });
+});
+
+app.MapPost("/api/schedules", (SaveScheduleRequest? request, ScheduleDefinitionService scheduleDefinitionService, WorkflowTypeCatalog workflowTypeCatalog) =>
+{
+    if (request == null)
+    {
+        return Results.BadRequest(new { success = false, message = "Request body is required." });
+    }
+
+    var schedule = ToScheduleDefinition(request);
+    if (!TryValidateScheduleStepSelection(schedule, workflowTypeCatalog, out var selectionError))
+    {
+        return Results.BadRequest(new { success = false, message = selectionError });
+    }
+
+    if (!scheduleDefinitionService.SaveSchedule(schedule, out var error))
+    {
+        return Results.BadRequest(new { success = false, message = error });
+    }
+
+    return Results.Ok(new { success = true, scheduleName = schedule.ScheduleName, message = "Schedule saved." });
+});
+
+app.MapPut("/api/schedules/{scheduleName}", (string scheduleName, SaveScheduleRequest? request, ScheduleDefinitionService scheduleDefinitionService, WorkflowTypeCatalog workflowTypeCatalog) =>
+{
+    if (request == null)
+    {
+        return Results.BadRequest(new { success = false, message = "Request body is required." });
+    }
+
+    if (!string.Equals(scheduleName?.Trim(), request.ScheduleName?.Trim(), StringComparison.Ordinal))
+    {
+        return Results.BadRequest(new { success = false, message = "Route schedule name must match request scheduleName." });
+    }
+
+    var schedule = ToScheduleDefinition(request);
+    if (!TryValidateScheduleStepSelection(schedule, workflowTypeCatalog, out var selectionError))
+    {
+        return Results.BadRequest(new { success = false, message = selectionError });
+    }
+
+    if (!scheduleDefinitionService.SaveSchedule(schedule, out var error))
+    {
+        return Results.BadRequest(new { success = false, message = error });
+    }
+
+    return Results.Ok(new { success = true, scheduleName = schedule.ScheduleName, message = "Schedule updated." });
+});
+
+app.MapPost("/api/schedules/{scheduleName}/start", async (string scheduleName, StartScheduleRequest? request, ScheduleRunnerService scheduleRunnerService) =>
+{
+    var result = await scheduleRunnerService.StartScheduleAsync(
+        scheduleName,
+        request?.ConfirmClearContext ?? false);
+    if (!result.Success)
+    {
+        return Results.Json(new
+        {
+            success = false,
+            message = result.Message,
+            requiresConfirmation = result.RequiresConfirmation,
+            confirmationReason = result.ConfirmationReason
+        }, statusCode: result.StatusCode);
+    }
+
+    return Results.Ok(new { success = true, message = result.Message });
+});
+
+app.MapPost("/api/schedules/stop", async (ScheduleRunnerService scheduleRunnerService) =>
+{
+    var result = await scheduleRunnerService.StopScheduleAsync();
+    return Results.Ok(new { success = result.Success, message = result.Message });
+});
+
+app.MapPost("/api/schedules/stop-task", async (ScheduleRunnerService scheduleRunnerService) =>
+{
+    var result = await scheduleRunnerService.StopCurrentScheduledTaskAsync();
+    if (!result.Success)
+    {
+        return Results.Conflict(new { success = false, message = result.Message });
+    }
+
+    return Results.Ok(new { success = true, message = result.Message });
 });
 
 app.MapGet("/api/projects", (ProjectWorkspaceService projectWorkspaceService) =>
@@ -625,7 +965,8 @@ app.MapPost("/api/workflow/project/select", async (
     ProjectWorkspaceService projectWorkspaceService,
     WorkflowStateStore workflowStateStore,
     AppSettings appSettings,
-    WebSocketHandler webSocketHandler) =>
+    WebSocketHandler webSocketHandler,
+    ScheduleRunnerService scheduleRunnerService) =>
 {
     if (!projectWorkspaceService.TryResolveWorkspace(request.ProjectName, out var workspace, out var error))
     {
@@ -651,6 +992,7 @@ app.MapPost("/api/workflow/project/select", async (
     await workflowStateStore.SwitchProjectAsync(workspace.ProjectName, workspace.ProjectDirectory);
     var switchedHydration = await workflowStateStore.GetHydrationAsync();
     var switchedSnapshot = switchedHydration.Snapshot;
+    var scheduleRuntime = scheduleRunnerService.GetRuntimeState();
 
     appSettings.SelectedProjectName = switchedSnapshot.SelectedProjectName;
     appSettings.SelectedProjectDirectory = switchedSnapshot.SelectedProjectDirectory;
@@ -705,7 +1047,9 @@ app.MapPost("/api/workflow/project/select", async (
                 totalDurationMs = switchedSnapshot.Metrics.TotalDurationMs,
                 averageStepDurationMs = switchedSnapshot.Metrics.AverageStepDurationMs,
                 totalTokensUsed = switchedSnapshot.Metrics.TotalTokensUsed
-            }
+            },
+            activeMode = scheduleRuntime.IsActive ? "schedule" : "workflow",
+            scheduleState = MapScheduleState(scheduleRuntime)
         },
         history = switchedHydration.History.Select(item => item.Message).ToList()
     });
@@ -992,8 +1336,18 @@ app.MapPost("/api/stop", async (WebSocketHandler webSocketHandler) =>
     return Results.Ok(new { success = true });
 });
 
-app.MapPost("/api/workflow/start", async (StartWorkflowRequest? request, WebSocketHandler webSocketHandler) =>
+app.MapPost("/api/workflow/start", async (StartWorkflowRequest? request, WebSocketHandler webSocketHandler, ScheduleRunnerService scheduleRunnerService) =>
 {
+    var scheduleState = scheduleRunnerService.GetRuntimeState();
+    if (scheduleState.IsActive)
+    {
+        return Results.Conflict(new
+        {
+            success = false,
+            message = $"Manual workflow start is disabled while Schedule Mode is active for '{scheduleState.ActiveScheduleName}'."
+        });
+    }
+
     var started = await webSocketHandler.StartWorkflowAsync(request?.WorkflowTypeId);
     if (!started)
     {
@@ -1067,6 +1421,7 @@ app.MapGet("/api/settings", (AppSettings appSettings) =>
             logFilePath = appSettings.LogFilePath,
             defaultToolTimeoutMs = appSettings.DefaultToolTimeoutMs,
             llmInactivityTimeoutMs = appSettings.LlmInactivityTimeoutMs,
+            enableBenchmarkHtmlOutput = appSettings.EnableBenchmarkHtmlOutput,
             telegramEnabled = appSettings.TelegramEnabled,
             telegramBotToken = appSettings.TelegramBotToken,
             telegramChatId = appSettings.TelegramChatId,
@@ -1352,6 +1707,7 @@ app.MapPost("/api/settings", async (
         root["LogFilePath"] = logFilePath;
         root["DefaultToolTimeoutMs"] = request.DefaultToolTimeoutMs;
         root["LlmInactivityTimeoutMs"] = request.LlmInactivityTimeoutMs;
+        root["EnableBenchmarkHtmlOutput"] = request.EnableBenchmarkHtmlOutput ?? appSettings.EnableBenchmarkHtmlOutput;
         root["TelegramEnabled"] = request.TelegramEnabled;
         root["TelegramBotToken"] = telegramBotToken;
         root["TelegramChatId"] = request.TelegramChatId;
@@ -1412,6 +1768,7 @@ app.MapPost("/api/settings", async (
     appSettings.LogFilePath = logFilePath;
     appSettings.DefaultToolTimeoutMs = request.DefaultToolTimeoutMs;
     appSettings.LlmInactivityTimeoutMs = request.LlmInactivityTimeoutMs;
+    appSettings.EnableBenchmarkHtmlOutput = request.EnableBenchmarkHtmlOutput ?? appSettings.EnableBenchmarkHtmlOutput;
     appSettings.TelegramEnabled = request.TelegramEnabled;
     appSettings.TelegramBotToken = telegramBotToken;
     appSettings.TelegramChatId = request.TelegramChatId;
@@ -1940,6 +2297,7 @@ Console.WriteLine($"Configuration: LM Studio at {settings.LmStudioUrl}");
 Console.WriteLine($"Steps directory: {settings.StepsDirectory}");
 Console.WriteLine($"Workflow types directory: {settings.WorkflowTypesDirectory}");
 Console.WriteLine($"Projects directory: {ResolveProjectsRoot(settings.ProjectRootDirectory, Directory.GetCurrentDirectory())}");
+Console.WriteLine($"Schedule directory: {ResolveScheduleRoot(Directory.GetCurrentDirectory())}");
 Console.WriteLine();
 Console.WriteLine("Server starting on http://localhost:8335");
 Console.WriteLine("Press Ctrl+C to stop");
@@ -1956,6 +2314,30 @@ catch (Exception ex)
 }
 
 // This line should never be reached in normal operation
+}
+
+static IResult BuildWorkflowEditorErrorResponse(WorkflowTypeEditorErrorKind errorKind, string message)
+{
+    return errorKind switch
+    {
+        WorkflowTypeEditorErrorKind.Conflict => BuildWorkflowEditorErrorResponse(StatusCodes.Status409Conflict, "conflict_error", message),
+        WorkflowTypeEditorErrorKind.NotFound => BuildWorkflowEditorErrorResponse(StatusCodes.Status404NotFound, "not_found", message),
+        WorkflowTypeEditorErrorKind.Validation => BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "validation_error", message),
+        _ => BuildWorkflowEditorErrorResponse(StatusCodes.Status400BadRequest, "workflow_editor_error", message)
+    };
+}
+
+static IResult BuildWorkflowEditorErrorResponse(int statusCode, string code, string message)
+{
+    return Results.Json(new
+    {
+        success = false,
+        error = new
+        {
+            code,
+            message
+        }
+    }, statusCode: statusCode);
 }
 
 static List<LlmServerSettings> ParseLlmServers(JsonElement llmServersElement)
@@ -2671,6 +3053,11 @@ static void EnsureWorkspaceDirectories(string projectsRootDirectory)
     Directory.CreateDirectory(projectsRootDirectory);
 }
 
+static string ResolveScheduleRoot(string currentDirectory)
+{
+    return Path.GetFullPath(Path.Combine(currentDirectory, "schedule"));
+}
+
 static string SanitizeFileName(string fileName)
 {
     var invalidChars = Regex.Escape(new string(Path.GetInvalidFileNameChars()));
@@ -2714,11 +3101,101 @@ static object? MapTicketHeaderStatus(TicketIterationHeaderProgress? status)
     };
 }
 
+static object MapScheduleState(ScheduleRuntimeState runtime)
+{
+    return new
+    {
+        isActive = runtime.IsActive,
+        activeScheduleName = runtime.ActiveScheduleName,
+        nextRunLocal = runtime.NextRunLocal,
+        triggerType = runtime.TriggerType,
+        scheduleType = runtime.ScheduleType
+    };
+}
+
+static ScheduleDefinition ToScheduleDefinition(SaveScheduleRequest request)
+{
+    return new ScheduleDefinition
+    {
+        ScheduleName = request.ScheduleName,
+        WorkflowTypeId = request.WorkflowTypeId,
+        SelectedStepFileNames = (request.SelectedStepFileNames ?? new List<string>())
+            .Where(step => !string.IsNullOrWhiteSpace(step))
+            .Select(step => step.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList(),
+        Trigger = new ScheduleTrigger
+        {
+            Type = request.Trigger?.Type ?? "immediate",
+            SpecificTimeLocal = request.Trigger?.SpecificTimeLocal ?? string.Empty,
+            IntervalHours = request.Trigger?.IntervalHours ?? 0,
+            IntervalMinutes = request.Trigger?.IntervalMinutes ?? 0,
+            IntervalSeconds = request.Trigger?.IntervalSeconds ?? 0
+        },
+        ScheduleType = request.ScheduleType,
+        RegularSelection = request.RegularSelection == null
+            ? null
+            : new ScheduleSelection
+            {
+                ServerId = request.RegularSelection.ServerId,
+                ModelId = request.RegularSelection.ModelId
+            },
+        BenchmarkSelections = (request.BenchmarkSelections ?? new List<ScheduleSelectionRequest>())
+            .Select(item => new ScheduleSelection
+            {
+                ServerId = item.ServerId,
+                ModelId = item.ModelId
+            }).ToList()
+    };
+}
+
+static bool TryValidateScheduleStepSelection(
+    ScheduleDefinition schedule,
+    WorkflowTypeCatalog workflowTypeCatalog,
+    out string error)
+{
+    var workflowType = workflowTypeCatalog.GetWorkflowType(schedule.WorkflowTypeId);
+    if (workflowType == null)
+    {
+        error = $"Workflow type '{schedule.WorkflowTypeId}' was not found.";
+        return false;
+    }
+
+    var availableStepNames = Directory.GetFiles(workflowType.StepsDirectory, "*.md", SearchOption.TopDirectoryOnly)
+        .Select(Path.GetFileName)
+        .Where(item => !string.IsNullOrWhiteSpace(item))
+        .Cast<string>()
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    if (availableStepNames.Count > 1 && (schedule.SelectedStepFileNames?.Count ?? 0) == 0)
+    {
+        error = "Select at least one step for multi-step workflows.";
+        return false;
+    }
+
+    var availableStepSet = new HashSet<string>(availableStepNames, StringComparer.OrdinalIgnoreCase);
+    foreach (var selectedStepFileName in schedule.SelectedStepFileNames ?? new List<string>())
+    {
+        if (!availableStepSet.Contains(selectedStepFileName))
+        {
+            error = $"Selected step '{selectedStepFileName}' was not found in workflow '{schedule.WorkflowTypeId}'.";
+            return false;
+        }
+    }
+
+    error = string.Empty;
+    return true;
+}
+
 }
 
 public record SendMessageRequest(string Message);
 public record StartWorkflowRequest(string? WorkflowTypeId);
 public record CreateProjectRequest(string ProjectName);
+public record CreateWorkflowTypeRequest(string WorkflowTypeId, string? Template);
+public record AddWorkflowTypeStepRequest(string? StepFileName, string? Template);
+public record SaveWorkflowTypeStepRequest(string? MarkdownContent, string? MetadataJsonContent);
 public record SelectProjectRequest(string ProjectName);
 public record ResumeSkippedTicketRequest(int StepNumber, string TicketId);
 public record SaveSettingsRequest(
@@ -2733,6 +3210,7 @@ public record SaveSettingsRequest(
     string LogFilePath,
     int DefaultToolTimeoutMs,
     int LlmInactivityTimeoutMs,
+    bool? EnableBenchmarkHtmlOutput,
     bool TelegramEnabled,
     string TelegramBotToken,
     long TelegramChatId,
@@ -2773,6 +3251,22 @@ public record FetchLlmModelsRequest(string LlmServerUrl, string LlmApiKey);
 public record ValidateProjectRootRequest(string ProjectRootDirectory);
 public record SkipToStepRequest(int StepNumber);
 public record SkipTicketRequest(int StepNumber, string TicketId);
+public record SaveScheduleRequest(
+    string ScheduleName,
+    string WorkflowTypeId,
+    List<string>? SelectedStepFileNames,
+    ScheduleTriggerRequest Trigger,
+    string ScheduleType,
+    ScheduleSelectionRequest? RegularSelection,
+    List<ScheduleSelectionRequest>? BenchmarkSelections);
+public record ScheduleTriggerRequest(
+    string Type,
+    string? SpecificTimeLocal,
+    int? IntervalHours,
+    int? IntervalMinutes,
+    int? IntervalSeconds);
+public record ScheduleSelectionRequest(string ServerId, string ModelId);
+public record StartScheduleRequest(bool ConfirmClearContext);
 
 public record TicketSummary(string TicketId, string Title);
 public class TicketDetail

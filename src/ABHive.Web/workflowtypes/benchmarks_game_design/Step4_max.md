@@ -11,6 +11,7 @@ GAME CONCEPT:
 The player controls a human named Nick walking down Bourbon Street in New Orleans, Louisiana. Bourbon Street is an open explorable street corridor with side alleys, balconies, neon signs, jazz clubs, street lights, beads, and French Quarter-inspired buildings, but the playable world is limited to Bourbon Street. Alligators roam the street and try to nip at Nick's ankles. The player must explore, dodge lunging alligators, collect safe-route markers, and reach the end of the street before ankle health runs out.
 
 REQUIREMENTS:
+- Do not read or write outside of {{PROJECT_ROOT}} 
 - Output only the HTML file content.
 - Use only HTML, CSS, WebGL or Canvas-based 3D rendering, and vanilla JavaScript.
 - Do not use Three.js, Babylon.js, external libraries, CDNs, images, build tools, or network calls.
@@ -34,7 +35,7 @@ RULES:
 - Do not ask questions.
 - Do not use external libraries, CDNs, images, build tools, or network calls.
 - Output must start with <!DOCTYPE html> and end with </html>.
-- Save the results to a file called step4-benchmark.html
+- Save the results to a file called step4-benchmark.html in folder {{SOLUTION_DIR}}
 
 DONE CRITERIA:
 - The HTML can be saved as a single .html file and opened directly in a browser.

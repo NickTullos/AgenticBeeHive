@@ -46,6 +46,10 @@ public class StepConversationService : IStepConversationService
         var finalResponse = new LLMResponse();
         var allToolResults = new List<ToolResult>();
         var pseudoToolCallRetryCount = 0;
+        var startedUtc = DateTime.UtcNow;
+        var accumulatedPromptTokens = 0;
+        var accumulatedCompletionTokens = 0;
+        var accumulatedTotalTokens = 0;
 
         while (true)
         {
@@ -57,13 +61,36 @@ public class StepConversationService : IStepConversationService
             };
 
             var llmResponse = await _llmClient.GenerateAsync(request, ct);
+            llmResponse ??= new LLMResponse();
+            var responseContent = llmResponse.Content ?? string.Empty;
             finalResponse = llmResponse;
+            var promptTokens = llmResponse?.Usage?.PromptTokens ?? 0;
+            if (promptTokens <= 0)
+            {
+                promptTokens = EstimateTokens(string.Join('\n', updatedContext.Select(message => message.Content ?? string.Empty)));
+            }
+
+            var completionTokens = llmResponse?.Usage?.CompletionTokens ?? 0;
+            if (completionTokens <= 0)
+            {
+                completionTokens = EstimateTokens(llmResponse?.Content);
+            }
+
+            var totalTokens = llmResponse?.Usage?.TotalTokens ?? 0;
+            if (totalTokens <= 0)
+            {
+                totalTokens = promptTokens + completionTokens;
+            }
+
+            accumulatedPromptTokens += promptTokens;
+            accumulatedCompletionTokens += completionTokens;
+            accumulatedTotalTokens += totalTokens;
 
             updatedContext.Add(new ChatMessage
             {
                 Role = "assistant",
-                Content = llmResponse.Content ?? string.Empty,
-                ToolCalls = llmResponse.ToolCalls?.Count > 0 ? llmResponse.ToolCalls : null
+                Content = responseContent,
+                ToolCalls = llmResponse!.ToolCalls is { Count: > 0 } toolCalls ? toolCalls : null
             });
 
             if (llmResponse.ToolCalls?.Count > 0)
@@ -165,8 +192,22 @@ public class StepConversationService : IStepConversationService
         {
             UpdatedStepContext = updatedContext,
             FinalResponse = finalResponse,
-            ToolResults = allToolResults
+            ToolResults = allToolResults,
+            DurationMs = (long)(DateTime.UtcNow - startedUtc).TotalMilliseconds,
+            PromptTokens = accumulatedPromptTokens,
+            CompletionTokens = accumulatedCompletionTokens,
+            TotalTokens = accumulatedTotalTokens
         };
+    }
+
+    private static int EstimateTokens(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        return Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
     }
 
     private void EnsureWorkspaceScopeMessage(List<ChatMessage> messages)
@@ -274,4 +315,8 @@ public class StepConversationTurnResult
     public List<ChatMessage> UpdatedStepContext { get; set; } = new();
     public LLMResponse FinalResponse { get; set; } = new();
     public List<ToolResult> ToolResults { get; set; } = new();
+    public long DurationMs { get; set; }
+    public int PromptTokens { get; set; }
+    public int CompletionTokens { get; set; }
+    public int TotalTokens { get; set; }
 }

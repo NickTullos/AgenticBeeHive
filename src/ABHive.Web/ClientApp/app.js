@@ -18,6 +18,9 @@ class WebSocketClient {
             this.socket.onopen = () => {
                 console.log("[WS] Connected");
                 this.isConnected = true;
+                state.wsDisconnected = false;
+                closeLlmSetupModal();
+                closeWebSocketReconnectModal();
 
                 while (this.queue.length > 0) {
                     const msg = this.queue.shift();
@@ -27,12 +30,17 @@ class WebSocketClient {
                 if (callback) {
                     callback(true);
                 }
+
+                updateBusyState(state.busy);
             };
 
             this.socket.onclose = (event) => {
                 console.log(`[WS] Disconnected: code=${event.code}, reason="${event.reason}"`);
                 this.isConnected = false;
+                state.wsDisconnected = true;
                 updateStatus("Disconnected", "red");
+                openWebSocketReconnectModal(event.reason || "WebSocket connection closed.");
+                updateBusyState(state.busy);
             };
 
             this.socket.onerror = (error) => {
@@ -45,6 +53,8 @@ class WebSocketClient {
             };
         } catch (error) {
             console.error("[WS] Connection failed:", error);
+            state.wsDisconnected = true;
+            updateBusyState(state.busy);
             if (callback) {
                 callback(false, error.message);
             }
@@ -85,6 +95,12 @@ class APIClient {
         });
     }
 
+    async delete(endpoint) {
+        return this.request(`${this.baseUrl}${endpoint}`, {
+            method: "DELETE"
+        });
+    }
+
     async getStatus() {
         return this.get("/api/status");
     }
@@ -99,6 +115,47 @@ class APIClient {
 
     async getWorkflowTypes() {
         return this.get("/api/workflowtypes");
+    }
+
+    async createWorkflowType(workflowTypeId) {
+        return this.post("/api/workflowtypes", { workflowTypeId });
+    }
+
+    async getWorkflowTypeSteps(workflowTypeId) {
+        const encodedWorkflowTypeId = encodeURIComponent(workflowTypeId || "");
+        return this.get(`/api/workflowtypes/${encodedWorkflowTypeId}/steps`);
+    }
+
+    async addWorkflowTypeStep(workflowTypeId, stepFileName) {
+        const encodedWorkflowTypeId = encodeURIComponent(workflowTypeId || "");
+        return this.post(`/api/workflowtypes/${encodedWorkflowTypeId}/steps`, { stepFileName });
+    }
+
+    async getWorkflowTypeStep(workflowTypeId, stepFileName) {
+        const encodedWorkflowTypeId = encodeURIComponent(workflowTypeId || "");
+        const encodedStepFileName = encodeURIComponent(stepFileName || "");
+        return this.get(`/api/workflowtypes/${encodedWorkflowTypeId}/steps/${encodedStepFileName}`);
+    }
+
+    async saveWorkflowTypeStep(workflowTypeId, stepFileName, markdownContent, metadataJsonContent) {
+        const encodedWorkflowTypeId = encodeURIComponent(workflowTypeId || "");
+        const encodedStepFileName = encodeURIComponent(stepFileName || "");
+        return this.request(`${this.baseUrl}/api/workflowtypes/${encodedWorkflowTypeId}/steps/${encodedStepFileName}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ markdownContent, metadataJsonContent })
+        });
+    }
+
+    async deleteWorkflowType(workflowTypeId) {
+        const encodedWorkflowTypeId = encodeURIComponent(workflowTypeId || "");
+        return this.delete(`/api/workflowtypes/${encodedWorkflowTypeId}`);
+    }
+
+    async deleteWorkflowTypeStep(workflowTypeId, stepFileName) {
+        const encodedWorkflowTypeId = encodeURIComponent(workflowTypeId || "");
+        const encodedStepFileName = encodeURIComponent(stepFileName || "");
+        return this.delete(`/api/workflowtypes/${encodedWorkflowTypeId}/steps/${encodedStepFileName}`);
     }
 
     async getProjects() {
@@ -123,6 +180,40 @@ class APIClient {
 
     async createProject(projectName) {
         return this.post("/api/projects", { projectName });
+    }
+
+    async getSchedules() {
+        return this.get("/api/schedules");
+    }
+
+    async getSchedule(scheduleName) {
+        return this.get(`/api/schedules/${encodeURIComponent(scheduleName || "")}`);
+    }
+
+    async createSchedule(payload) {
+        return this.post("/api/schedules", payload);
+    }
+
+    async updateSchedule(scheduleName, payload) {
+        return this.request(`${this.baseUrl}/api/schedules/${encodeURIComponent(scheduleName || "")}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+    }
+
+    async startSchedule(scheduleName, confirmClearContext = false) {
+        return this.post(`/api/schedules/${encodeURIComponent(scheduleName || "")}/start`, {
+            confirmClearContext: Boolean(confirmClearContext)
+        });
+    }
+
+    async stopSchedule() {
+        return this.post("/api/schedules/stop", {});
+    }
+
+    async stopScheduleTask() {
+        return this.post("/api/schedules/stop-task", {});
     }
 
     async selectProject(projectName) {
@@ -207,10 +298,12 @@ class APIClient {
 
             if (!response.ok) {
                 const message = typeof payload === "object" && payload !== null
-                    ? payload.message || `HTTP ${response.status}`
+                    ? payload.error?.message || payload.message || `HTTP ${response.status}`
                     : payload || `HTTP ${response.status}`;
-
-                throw new Error(message);
+                const error = new Error(message);
+                error.status = response.status;
+                error.details = payload;
+                throw error;
             }
 
             return payload;
@@ -271,6 +364,7 @@ const ui = {
     status: document.getElementById("status-indicator"),
     stepPanel: document.getElementById("step-panel"),
     updateAvailableBadge: document.getElementById("update-available-badge"),
+    activeModeBadge: document.getElementById("active-mode-badge"),
     progressBar: document.getElementById("progress-bar"),
     stepCounter: document.getElementById("step-counter"),
     stepName: document.getElementById("step-name"),
@@ -278,9 +372,16 @@ const ui = {
     viewCurrentTicketBtn: document.getElementById("view-current-ticket-btn"),
     busyIndicator: document.getElementById("busy-indicator"),
     stopBtn: document.getElementById("stop-btn"),
+    stopScheduleTaskBtn: document.getElementById("stop-schedule-task-btn"),
     resetBtn: document.getElementById("reset-btn"),
+    newOpenBtn: document.getElementById("new-open-btn"),
     newProjectBtn: document.getElementById("new-project-btn"),
+    scheduleBtn: document.getElementById("schedule-btn"),
     switchProjectBtn: document.getElementById("switch-project-btn"),
+    startNewModal: document.getElementById("start-new-modal"),
+    startNewCloseBtn: document.getElementById("start-new-close-btn"),
+    newWorkflowModal: document.getElementById("new-workflow-modal"),
+    newWorkflowCloseBtn: document.getElementById("new-workflow-close-btn"),
     switchProjectModal: document.getElementById("switch-project-modal"),
     switchProjectCloseBtn: document.getElementById("switch-project-close-btn"),
     switchProjectList: document.getElementById("switch-project-list"),
@@ -295,6 +396,57 @@ const ui = {
     createProjectModal: document.getElementById("create-project-modal"),
     createProjectCloseBtn: document.getElementById("create-project-close-btn"),
     createProjectCancelBtn: document.getElementById("create-project-cancel-btn"),
+    scheduleModal: document.getElementById("schedule-modal"),
+    scheduleCloseBtn: document.getElementById("schedule-close-btn"),
+    scheduleRefreshBtn: document.getElementById("schedule-refresh-btn"),
+    scheduleList: document.getElementById("schedule-list"),
+    scheduleStatus: document.getElementById("schedule-status"),
+    scheduleStopBtn: document.getElementById("schedule-stop-btn"),
+    scheduleOpenEditorBtn: document.getElementById("schedule-open-editor-btn"),
+    scheduleEditorModal: document.getElementById("schedule-editor-modal"),
+    scheduleEditorCloseBtn: document.getElementById("schedule-editor-close-btn"),
+    scheduleEditorCancelBtn: document.getElementById("schedule-editor-cancel-btn"),
+    scheduleEditorSaveBtn: document.getElementById("schedule-editor-save-btn"),
+    scheduleEditorExistingSelect: document.getElementById("schedule-editor-existing-select"),
+    scheduleEditorNameInput: document.getElementById("schedule-editor-name-input"),
+    scheduleEditorWorkflowSelect: document.getElementById("schedule-editor-workflow-select"),
+    scheduleEditorStepsGroup: document.getElementById("schedule-editor-steps-group"),
+    scheduleEditorStepsList: document.getElementById("schedule-editor-steps-list"),
+    scheduleEditorTriggerType: document.getElementById("schedule-editor-trigger-type"),
+    scheduleEditorScheduleType: document.getElementById("schedule-editor-schedule-type"),
+    scheduleEditorSpecificTimeGroup: document.getElementById("schedule-editor-specific-time-group"),
+    scheduleEditorSpecificTime: document.getElementById("schedule-editor-specific-time"),
+    scheduleEditorFrequencyGroup: document.getElementById("schedule-editor-frequency-group"),
+    scheduleEditorIntervalHours: document.getElementById("schedule-editor-interval-hours"),
+    scheduleEditorIntervalMinutes: document.getElementById("schedule-editor-interval-minutes"),
+    scheduleEditorIntervalSeconds: document.getElementById("schedule-editor-interval-seconds"),
+    scheduleEditorRegularGroup: document.getElementById("schedule-editor-regular-group"),
+    scheduleEditorRegularServer: document.getElementById("schedule-editor-regular-server"),
+    scheduleEditorRegularModel: document.getElementById("schedule-editor-regular-model"),
+    scheduleEditorBenchmarkGroup: document.getElementById("schedule-editor-benchmark-group"),
+    scheduleEditorBenchmarkList: document.getElementById("schedule-editor-benchmark-list"),
+    scheduleEditorStatus: document.getElementById("schedule-editor-status"),
+    manageWorkflowTypesBtn: document.getElementById("manage-workflow-types-btn"),
+    workflowEditorModal: document.getElementById("workflow-editor-modal"),
+    workflowEditorCloseBtn: document.getElementById("workflow-editor-close-btn"),
+    workflowEditorOpenCreateBtn: document.getElementById("workflow-editor-open-create-btn"),
+    workflowEditorCreateModal: document.getElementById("workflow-editor-create-modal"),
+    workflowEditorCreateCloseBtn: document.getElementById("workflow-editor-create-close-btn"),
+    workflowEditorCreateCancelBtn: document.getElementById("workflow-editor-create-cancel-btn"),
+    workflowEditorCreateSubmitBtn: document.getElementById("workflow-editor-create-submit-btn"),
+    workflowEditorCreateNameInput: document.getElementById("workflow-editor-create-name-input"),
+    workflowEditorWorkflowsList: document.getElementById("workflow-editor-workflows-list"),
+    workflowEditorStepsList: document.getElementById("workflow-editor-steps-list"),
+    workflowEditorSelectedWorkflow: document.getElementById("workflow-editor-selected-workflow"),
+    workflowEditorSelectedStep: document.getElementById("workflow-editor-selected-step"),
+    workflowEditorAddStepBtn: document.getElementById("workflow-editor-add-step-btn"),
+    workflowEditorEditorsGrid: document.getElementById("workflow-editor-editors-grid"),
+    workflowEditorCreateIterationBtn: document.getElementById("workflow-editor-create-iteration-btn"),
+    workflowEditorMetadataPanel: document.getElementById("workflow-editor-metadata-panel"),
+    workflowEditorMarkdown: document.getElementById("workflow-editor-markdown"),
+    workflowEditorMetadata: document.getElementById("workflow-editor-metadata"),
+    workflowEditorStatus: document.getElementById("workflow-editor-status"),
+    workflowEditorSaveBtn: document.getElementById("workflow-editor-save-btn"),
     chatContainer: document.getElementById("chat-container"),
     fileUploadInput: document.getElementById("file-upload-input"),
     uploadBtn: document.getElementById("upload-btn"),
@@ -315,10 +467,16 @@ const ui = {
     skipStepsList: document.getElementById("skip-steps-list"),
     llmSetupModal: document.getElementById("llm-setup-modal"),
     llmSetupCloseBtn: document.getElementById("llm-setup-close-btn"),
+    llmSetupTitle: document.getElementById("llm-setup-title"),
+    llmSetupSubtitle: document.getElementById("llm-setup-subtitle"),
     llmSetupDetails: document.getElementById("llm-setup-details"),
     llmSetupSettingsLink: document.getElementById("llm-setup-settings-link"),
     llmSetupRetryBtn: document.getElementById("llm-setup-retry-btn"),
     llmSetupVideoLink: document.getElementById("llm-setup-video-link"),
+    wsReconnectModal: document.getElementById("ws-reconnect-modal"),
+    wsReconnectCloseBtn: document.getElementById("ws-reconnect-close-btn"),
+    wsReconnectRetryBtn: document.getElementById("ws-reconnect-retry-btn"),
+    wsReconnectDetails: document.getElementById("ws-reconnect-details"),
     contentViewModal: document.getElementById("content-view-modal"),
     contentViewTitle: document.getElementById("content-view-title"),
     contentViewSubtitle: document.getElementById("content-view-subtitle"),
@@ -351,20 +509,47 @@ const state = {
     selectedProjectDirectory: "",
     targetProjectName: "",
     showProjectConfigPanel: false,
+    newWorkflowIntentActive: false,
     llmServers: [],
     activeLlmServerId: "",
     activeLlmModelId: "",
     currentLlmModelName: "",
     currentLlmServerName: "",
+    activeMode: "workflow",
+    scheduleState: null,
+    schedules: [],
+    scheduleModalOpen: false,
+    scheduleEditorOpen: false,
+    scheduleEditorLoading: false,
+    scheduleEditorCurrentName: "",
+    scheduleEditorLockedName: "",
+    scheduleEditorWorkflowSteps: [],
+    scheduleEditorSelectedStepFileNames: [],
+    scheduleEditorBenchmarkSelectionKeys: [],
     llmHealthy: true,
     llmHealthChecked: false,
     llmHealthDetail: "",
     llmHealthBaseUrl: "",
+    wsDisconnected: false,
     versionCheckStarted: false,
     isCurrentStepTicketIteration: false,
     ticketHeaderStatus: null,
     ticketProgress: null,
-    skipOptions: null
+    skipOptions: null,
+    workflowEditorOpen: false,
+    workflowEditorLoading: false,
+    workflowEditorDeletingWorkflowId: "",
+    workflowEditorDeletingStepFileName: "",
+    workflowEditorDeleteWorkflowVisibleId: "",
+    workflowEditorDeleteStepVisibleFileName: "",
+    workflowEditorSelectedWorkflowId: "",
+    workflowEditorSelectedWorkflowName: "",
+    workflowEditorSteps: [],
+    workflowEditorSelectedStepFileName: "",
+    workflowEditorMarkdownDraft: "",
+    workflowEditorMetadataDraft: "",
+    workflowEditorHasTicketIteration: false,
+    workflowEditorDirty: false
 };
 
 function hideUpdateBadge() {
@@ -428,6 +613,28 @@ function openLlmSetupModal(detailText) {
 
     ui.llmSetupModal.classList.remove("hidden");
     ui.llmSetupModal.classList.add("flex");
+}
+
+function openWebSocketReconnectModal(detailText) {
+    if (!ui.wsReconnectModal) {
+        return;
+    }
+
+    if (ui.wsReconnectDetails) {
+        ui.wsReconnectDetails.textContent = detailText || "WebSocket connection is disconnected.";
+    }
+
+    ui.wsReconnectModal.classList.remove("hidden");
+    ui.wsReconnectModal.classList.add("flex");
+}
+
+function closeWebSocketReconnectModal() {
+    if (!ui.wsReconnectModal) {
+        return;
+    }
+
+    ui.wsReconnectModal.classList.add("hidden");
+    ui.wsReconnectModal.classList.remove("flex");
 }
 
 function closeLlmSetupModal() {
@@ -554,6 +761,1437 @@ function closeCreateProjectModal() {
     }
 }
 
+function updateActiveModeBadge() {
+    if (!ui.activeModeBadge) {
+        return;
+    }
+
+    const isScheduleMode = state.activeMode === "schedule" || Boolean(state.scheduleState?.isActive);
+    ui.activeModeBadge.textContent = isScheduleMode ? "Schedule Mode" : "Workflow Mode";
+    ui.activeModeBadge.className = isScheduleMode
+        ? "rounded bg-purple-700 px-2 py-0.5 text-xs font-semibold text-purple-100"
+        : "rounded bg-slate-700 px-2 py-0.5 text-xs font-semibold text-cyan-200";
+}
+
+function openScheduleModal() {
+    if (!ui.scheduleModal) {
+        return;
+    }
+
+    state.scheduleModalOpen = true;
+    ui.scheduleModal.classList.remove("hidden");
+    ui.scheduleModal.classList.add("flex");
+    void loadSchedules();
+}
+
+function closeScheduleModal() {
+    if (!ui.scheduleModal) {
+        return;
+    }
+
+    state.scheduleModalOpen = false;
+    ui.scheduleModal.classList.add("hidden");
+    ui.scheduleModal.classList.remove("flex");
+}
+
+function openScheduleEditorModal() {
+    if (!ui.scheduleEditorModal) {
+        return;
+    }
+
+    state.scheduleEditorOpen = true;
+    state.scheduleEditorLockedName = "";
+    state.scheduleEditorWorkflowSteps = [];
+    state.scheduleEditorSelectedStepFileNames = [];
+    state.scheduleEditorBenchmarkSelectionKeys = [];
+    ui.scheduleEditorModal.classList.remove("hidden");
+    ui.scheduleEditorModal.classList.add("flex");
+    renderScheduleEditorSelectors();
+    if (ui.scheduleEditorExistingSelect) {
+        ui.scheduleEditorExistingSelect.value = "";
+    }
+    if (ui.scheduleEditorNameInput) {
+        ui.scheduleEditorNameInput.value = "";
+        ui.scheduleEditorNameInput.focus();
+    }
+    if (ui.scheduleEditorSpecificTime) {
+        ui.scheduleEditorSpecificTime.value = "09:00:00";
+    }
+    if (ui.scheduleEditorIntervalHours) ui.scheduleEditorIntervalHours.value = "0";
+    if (ui.scheduleEditorIntervalMinutes) ui.scheduleEditorIntervalMinutes.value = "0";
+    if (ui.scheduleEditorIntervalSeconds) ui.scheduleEditorIntervalSeconds.value = "0";
+    syncScheduleEditorVisibility();
+    syncScheduleEditorLockState();
+    setScheduleEditorStatus("Configure and save schedule.", "neutral");
+}
+
+function openScheduleEditorForRecreate(scheduleName) {
+    openScheduleEditorModal();
+    const normalizedName = (scheduleName || "").trim();
+    if (!normalizedName) {
+        return;
+    }
+
+    state.scheduleEditorCurrentName = "";
+    state.scheduleEditorSelectedStepFileNames = [];
+    if (ui.scheduleEditorExistingSelect) {
+        ui.scheduleEditorExistingSelect.value = "";
+    }
+    if (ui.scheduleEditorNameInput) {
+        ui.scheduleEditorNameInput.value = normalizedName;
+        ui.scheduleEditorNameInput.focus();
+    }
+    setScheduleEditorStatus(`Recreate '${normalizedName}' by selecting workflow and saving.`, "warning");
+}
+
+async function openScheduleEditorForEdit(scheduleName) {
+    openScheduleEditorModal();
+    const normalizedName = (scheduleName || "").trim();
+    if (!normalizedName) {
+        return;
+    }
+
+    state.scheduleEditorLockedName = normalizedName;
+    state.scheduleEditorCurrentName = normalizedName;
+    syncScheduleEditorLockState();
+    if (ui.scheduleEditorExistingSelect) {
+        ui.scheduleEditorExistingSelect.value = normalizedName;
+    }
+    await loadScheduleIntoEditor(normalizedName);
+}
+
+function closeScheduleEditorModal() {
+    if (!ui.scheduleEditorModal) {
+        return;
+    }
+
+    state.scheduleEditorOpen = false;
+    state.scheduleEditorLockedName = "";
+    ui.scheduleEditorModal.classList.add("hidden");
+    ui.scheduleEditorModal.classList.remove("flex");
+}
+
+function syncScheduleEditorLockState() {
+    const isLocked = Boolean((state.scheduleEditorLockedName || "").trim());
+
+    if (ui.scheduleEditorNameInput) {
+        ui.scheduleEditorNameInput.readOnly = isLocked;
+        ui.scheduleEditorNameInput.classList.toggle("bg-slate-100", isLocked);
+        ui.scheduleEditorNameInput.classList.toggle("text-slate-500", isLocked);
+        ui.scheduleEditorNameInput.classList.toggle("cursor-not-allowed", isLocked);
+    }
+
+    if (ui.scheduleEditorExistingSelect) {
+        ui.scheduleEditorExistingSelect.disabled = isLocked;
+        ui.scheduleEditorExistingSelect.classList.toggle("bg-slate-100", isLocked);
+        ui.scheduleEditorExistingSelect.classList.toggle("text-slate-500", isLocked);
+        ui.scheduleEditorExistingSelect.classList.toggle("cursor-not-allowed", isLocked);
+    }
+}
+
+function setScheduleEditorStatus(message, tone = "neutral") {
+    if (!ui.scheduleEditorStatus) {
+        return;
+    }
+
+    const classByTone = {
+        neutral: "text-sm text-slate-600",
+        success: "text-sm text-emerald-700",
+        warning: "text-sm text-amber-700",
+        error: "text-sm text-red-700"
+    };
+
+    ui.scheduleEditorStatus.textContent = message || "";
+    ui.scheduleEditorStatus.className = classByTone[tone] || classByTone.neutral;
+}
+
+function getServerById(serverId) {
+    return (state.llmServers || []).find((server) => server.id === serverId) || null;
+}
+
+function updateScheduleEditorRegularModelOptions() {
+    if (!ui.scheduleEditorRegularServer || !ui.scheduleEditorRegularModel) {
+        return;
+    }
+
+    const serverId = ui.scheduleEditorRegularServer.value || "";
+    const server = getServerById(serverId);
+    const models = Array.isArray(server?.models) ? server.models : [];
+
+    ui.scheduleEditorRegularModel.innerHTML = "";
+    if (models.length === 0) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "(no models)";
+        ui.scheduleEditorRegularModel.appendChild(option);
+        return;
+    }
+
+    models.forEach((model) => {
+        const option = document.createElement("option");
+        option.value = model.id;
+        option.textContent = model.name;
+        ui.scheduleEditorRegularModel.appendChild(option);
+    });
+}
+
+function renderScheduleEditorSelectors() {
+    if (!ui.scheduleEditorExistingSelect || !ui.scheduleEditorWorkflowSelect || !ui.scheduleEditorRegularServer) {
+        return;
+    }
+
+    ui.scheduleEditorExistingSelect.innerHTML = '<option value="">(new schedule)</option>';
+    state.schedules
+        .filter((schedule) => (schedule.status || "ready") === "ready")
+        .forEach((schedule) => {
+        const option = document.createElement("option");
+        option.value = schedule.scheduleName;
+        option.textContent = schedule.scheduleName;
+        ui.scheduleEditorExistingSelect.appendChild(option);
+    });
+
+    ui.scheduleEditorWorkflowSelect.innerHTML = "";
+    (state.workflowTypes || []).forEach((workflowType) => {
+        const option = document.createElement("option");
+        option.value = workflowType.id;
+        option.textContent = workflowType.name;
+        ui.scheduleEditorWorkflowSelect.appendChild(option);
+    });
+
+    ui.scheduleEditorRegularServer.innerHTML = "";
+    (state.llmServers || []).forEach((server) => {
+        const option = document.createElement("option");
+        option.value = server.id;
+        option.textContent = server.name;
+        ui.scheduleEditorRegularServer.appendChild(option);
+    });
+
+    updateScheduleEditorRegularModelOptions();
+    renderScheduleEditorBenchmarkList();
+    const selectedWorkflowTypeId = ui.scheduleEditorWorkflowSelect?.value || "";
+    void loadScheduleEditorWorkflowSteps(selectedWorkflowTypeId, state.scheduleEditorSelectedStepFileNames);
+}
+
+function renderScheduleEditorStepList() {
+    if (!ui.scheduleEditorStepsList) {
+        return;
+    }
+
+    const steps = state.scheduleEditorWorkflowSteps || [];
+    if (steps.length <= 1) {
+        ui.scheduleEditorStepsList.innerHTML = '<p class="text-slate-500">This workflow has a single step and will always run it.</p>';
+        return;
+    }
+
+    const selected = new Set(state.scheduleEditorSelectedStepFileNames || []);
+    ui.scheduleEditorStepsList.innerHTML = steps.map((step, index) => {
+        const stepFileName = step.stepFileName || "";
+        const checked = selected.has(stepFileName) ? "checked" : "";
+        return `
+            <label class="flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
+                <input type="checkbox" class="schedule-step-checkbox" data-step-file-name="${escapeHtml(stepFileName)}" ${checked}>
+                <span>${index + 1}. ${escapeHtml(stepFileName)}</span>
+            </label>
+        `;
+    }).join("");
+}
+
+async function loadScheduleEditorWorkflowSteps(workflowTypeId, preferredSelectedStepFileNames = []) {
+    state.scheduleEditorWorkflowSteps = [];
+    state.scheduleEditorSelectedStepFileNames = [];
+    if (!workflowTypeId) {
+        renderScheduleEditorStepList();
+        syncScheduleEditorVisibility();
+        return;
+    }
+
+    try {
+        const result = await apiClient.getWorkflowTypeSteps(workflowTypeId);
+        const steps = Array.isArray(result?.steps) ? result.steps : [];
+        state.scheduleEditorWorkflowSteps = steps;
+
+        const normalizedPreferred = new Set((preferredSelectedStepFileNames || []).filter((item) => typeof item === "string" && item.trim().length > 0));
+        const availableStepNames = steps.map((item) => item.stepFileName).filter((item) => typeof item === "string" && item.trim().length > 0);
+        if (steps.length > 1) {
+            if (normalizedPreferred.size > 0) {
+                state.scheduleEditorSelectedStepFileNames = availableStepNames.filter((stepFileName) => normalizedPreferred.has(stepFileName));
+            } else {
+                state.scheduleEditorSelectedStepFileNames = [...availableStepNames];
+            }
+        } else {
+            state.scheduleEditorSelectedStepFileNames = [];
+        }
+    } catch (error) {
+        state.scheduleEditorWorkflowSteps = [];
+        state.scheduleEditorSelectedStepFileNames = [];
+        logTerminal(`[ERROR] Failed to load workflow steps for schedule editor: ${error.message}`, "red");
+    }
+
+    renderScheduleEditorStepList();
+    syncScheduleEditorVisibility();
+}
+
+function renderScheduleEditorBenchmarkList(selectedKeys = state.scheduleEditorBenchmarkSelectionKeys) {
+    if (!ui.scheduleEditorBenchmarkList) {
+        return;
+    }
+
+    const keySet = new Set(selectedKeys || []);
+    const rows = [];
+    (state.llmServers || []).forEach((server) => {
+        (server.models || []).forEach((model) => {
+            const key = `${server.id}|${model.id}`;
+            const checked = keySet.has(key) ? "checked" : "";
+            rows.push(`
+                <label class="flex items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
+                    <input type="checkbox" class="schedule-benchmark-checkbox" data-key="${key}" ${checked}>
+                    <span>${escapeHtml(server.name)} / ${escapeHtml(model.name)}</span>
+                </label>
+            `);
+        });
+    });
+
+    ui.scheduleEditorBenchmarkList.innerHTML = rows.length > 0
+        ? rows.join("")
+        : '<p class="text-slate-500">No LLM server/model combos available.</p>';
+}
+
+function syncScheduleEditorVisibility() {
+    const triggerType = ui.scheduleEditorTriggerType?.value || "immediate";
+    const scheduleType = ui.scheduleEditorScheduleType?.value || "regular";
+
+    if (ui.scheduleEditorSpecificTimeGroup) {
+        ui.scheduleEditorSpecificTimeGroup.classList.toggle("hidden", triggerType !== "specificTime");
+    }
+    if (ui.scheduleEditorFrequencyGroup) {
+        ui.scheduleEditorFrequencyGroup.classList.toggle("hidden", triggerType !== "frequency");
+    }
+    if (ui.scheduleEditorRegularGroup) {
+        ui.scheduleEditorRegularGroup.classList.toggle("hidden", scheduleType !== "regular");
+    }
+    if (ui.scheduleEditorBenchmarkGroup) {
+        ui.scheduleEditorBenchmarkGroup.classList.toggle("hidden", scheduleType !== "benchmark");
+    }
+    if (ui.scheduleEditorStepsGroup) {
+        ui.scheduleEditorStepsGroup.classList.toggle("hidden", (state.scheduleEditorWorkflowSteps || []).length <= 1);
+    }
+}
+
+function normalizeScheduleState(scheduleState) {
+    state.scheduleState = scheduleState || null;
+    state.activeMode = state.scheduleState?.isActive ? "schedule" : "workflow";
+    updateActiveModeBadge();
+
+    if (ui.scheduleStatus) {
+        const runtime = state.scheduleState;
+        if (runtime?.isActive) {
+            const nextRun = runtime.nextRunLocal ? ` • Next: ${runtime.nextRunLocal}` : "";
+            ui.scheduleStatus.textContent = `Active: ${runtime.activeScheduleName || "(unknown)"} (${runtime.triggerType || "trigger"})${nextRun}`;
+        } else {
+            ui.scheduleStatus.textContent = "No active schedule.";
+        }
+    }
+}
+
+function renderScheduleList() {
+    if (!ui.scheduleList) {
+        return;
+    }
+
+    if (!state.schedules || state.schedules.length === 0) {
+        ui.scheduleList.innerHTML = '<p class="text-slate-500">No schedules found. Click "Create" to add one.</p>';
+        return;
+    }
+
+    const activeScheduleName = state.scheduleState?.activeScheduleName || "";
+    ui.scheduleList.innerHTML = state.schedules.map((schedule) => {
+        const status = (schedule.status || "ready").toLowerCase();
+        const isCorrupted = status === "corrupted";
+        const isActive = activeScheduleName === schedule.scheduleName;
+        const detailText = isCorrupted
+            ? `Corrupted • ${escapeHtml(schedule.error || "Missing or invalid schedule.json")}`
+            : `${escapeHtml(schedule.workflowTypeId)} • ${escapeHtml(schedule.scheduleType)} • ${escapeHtml(schedule.triggerType)}`;
+        return `
+            <div class="flex items-center justify-between border-b border-slate-200 px-2 py-2">
+                <div>
+                    <p class="font-semibold text-slate-800">${escapeHtml(schedule.scheduleName)}</p>
+                    <p class="text-xs ${isCorrupted ? "text-amber-700" : "text-slate-500"}">${detailText}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    ${isActive ? '<span class="rounded bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">Active</span>' : ""}
+                    ${isCorrupted ? '<span class="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Corrupted</span>' : ""}
+                    <button class="schedule-start-btn rounded bg-cyan-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500 transition disabled:opacity-50"
+                            data-schedule-name="${escapeHtml(schedule.scheduleName)}"
+                            ${isActive || isCorrupted ? "disabled" : ""}>
+                        Start
+                    </button>
+                    ${!isCorrupted ? `
+                        <button class="schedule-edit-btn rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+                                data-schedule-name="${escapeHtml(schedule.scheduleName)}">
+                            Edit
+                        </button>` : ""}
+                    ${isCorrupted ? `
+                        <button class="schedule-recreate-btn rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition"
+                                data-schedule-name="${escapeHtml(schedule.scheduleName)}">
+                            Recreate
+                        </button>` : ""}
+                </div>
+            </div>
+        `;
+    }).join("");
+}
+
+async function loadSchedules() {
+    try {
+        const result = await apiClient.getSchedules();
+        state.schedules = Array.isArray(result?.schedules) ? result.schedules : [];
+        normalizeScheduleState(result?.scheduleState || null);
+        renderScheduleList();
+        if (ui.scheduleStopBtn) {
+            ui.scheduleStopBtn.disabled = !state.scheduleState?.isActive;
+        }
+        if (state.scheduleEditorOpen) {
+            renderScheduleEditorSelectors();
+        }
+        updateBusyState(state.busy);
+    } catch (error) {
+        logTerminal(`[ERROR] Failed to load schedules: ${error.message}`, "red");
+    }
+}
+
+async function startSchedule(scheduleName) {
+    if (!scheduleName) {
+        return;
+    }
+
+    try {
+        const result = await apiClient.startSchedule(scheduleName);
+        logTerminal(`[SCHEDULE] ${result.message || `Started ${scheduleName}`}`, "cyan");
+        await refreshWorkflowHeaderStateAfterScheduleStart();
+        await loadSchedules();
+        closeScheduleModal();
+        updateBusyState(state.busy);
+    } catch (error) {
+        if (error?.details?.requiresConfirmation) {
+            const reason = error.details.confirmationReason || "Starting this schedule will clear the current paused/resumable workflow context.";
+            const confirmStart = window.confirm(`${reason}\n\nContinue?`);
+            if (!confirmStart) {
+                logTerminal("[SCHEDULE] Start canceled by user.", "orange");
+                return;
+            }
+
+            try {
+                const confirmedResult = await apiClient.startSchedule(scheduleName, true);
+                logTerminal(`[SCHEDULE] ${confirmedResult.message || `Started ${scheduleName}`}`, "cyan");
+                await refreshWorkflowHeaderStateAfterScheduleStart();
+                await loadSchedules();
+                closeScheduleModal();
+                updateBusyState(state.busy);
+                return;
+            } catch (confirmedError) {
+                logTerminal(`[ERROR] Failed to start schedule: ${confirmedError.message}`, "red");
+                return;
+            }
+        }
+
+        logTerminal(`[ERROR] Failed to start schedule: ${error.message}`, "red");
+    }
+}
+
+async function refreshWorkflowHeaderStateAfterScheduleStart() {
+    const maxAttempts = 8;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+            const workflowState = await apiClient.getWorkflowState();
+            applyHydration(workflowState);
+
+            const hasProject = Boolean((state.selectedProjectName || "").trim());
+            const hasWorkflow = Boolean((state.selectedWorkflowTypeName || "").trim());
+            if (hasProject || hasWorkflow || state.workflowRunning || state.canResume) {
+                return;
+            }
+        } catch {
+            // Best effort refresh only.
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+}
+
+async function stopSchedule() {
+    try {
+        const result = await apiClient.stopSchedule();
+        logTerminal(`[SCHEDULE] ${result.message || "Stopped schedule."}`, "orange");
+        await loadSchedules();
+        updateBusyState(state.busy);
+    } catch (error) {
+        logTerminal(`[ERROR] Failed to stop schedule: ${error.message}`, "red");
+    }
+}
+
+async function loadScheduleIntoEditor(scheduleName) {
+    if (!scheduleName) {
+        state.scheduleEditorCurrentName = "";
+        state.scheduleEditorWorkflowSteps = [];
+        state.scheduleEditorSelectedStepFileNames = [];
+        state.scheduleEditorBenchmarkSelectionKeys = [];
+        if (ui.scheduleEditorNameInput) {
+            ui.scheduleEditorNameInput.value = "";
+        }
+        renderScheduleEditorBenchmarkList();
+        renderScheduleEditorStepList();
+        syncScheduleEditorVisibility();
+        return;
+    }
+
+    try {
+        const result = await apiClient.getSchedule(scheduleName);
+        const schedule = result?.schedule;
+        if (!schedule) {
+            return;
+        }
+
+        state.scheduleEditorCurrentName = schedule.scheduleName || "";
+        if (ui.scheduleEditorNameInput) {
+            ui.scheduleEditorNameInput.value = schedule.scheduleName || "";
+        }
+        if (ui.scheduleEditorWorkflowSelect) {
+            ui.scheduleEditorWorkflowSelect.value = schedule.workflowTypeId || "";
+        }
+        state.scheduleEditorSelectedStepFileNames = Array.isArray(schedule.selectedStepFileNames)
+            ? schedule.selectedStepFileNames.filter((item) => typeof item === "string" && item.trim().length > 0)
+            : [];
+        if (ui.scheduleEditorTriggerType) {
+            ui.scheduleEditorTriggerType.value = schedule.trigger?.type || "immediate";
+        }
+        if (ui.scheduleEditorScheduleType) {
+            ui.scheduleEditorScheduleType.value = schedule.scheduleType || "regular";
+        }
+        if (ui.scheduleEditorSpecificTime) {
+            ui.scheduleEditorSpecificTime.value = schedule.trigger?.specificTimeLocal || "09:00:00";
+        }
+        if (ui.scheduleEditorIntervalHours) {
+            ui.scheduleEditorIntervalHours.value = schedule.trigger?.intervalHours ?? 0;
+        }
+        if (ui.scheduleEditorIntervalMinutes) {
+            ui.scheduleEditorIntervalMinutes.value = schedule.trigger?.intervalMinutes ?? 0;
+        }
+        if (ui.scheduleEditorIntervalSeconds) {
+            ui.scheduleEditorIntervalSeconds.value = schedule.trigger?.intervalSeconds ?? 0;
+        }
+        if (ui.scheduleEditorRegularServer) {
+            ui.scheduleEditorRegularServer.value = schedule.regularSelection?.serverId || ui.scheduleEditorRegularServer.value || "";
+            updateScheduleEditorRegularModelOptions();
+        }
+        if (ui.scheduleEditorRegularModel) {
+            ui.scheduleEditorRegularModel.value = schedule.regularSelection?.modelId || ui.scheduleEditorRegularModel.value || "";
+        }
+
+        state.scheduleEditorBenchmarkSelectionKeys = Array.isArray(schedule.benchmarkSelections)
+            ? schedule.benchmarkSelections.map((item) => `${item.serverId}|${item.modelId}`)
+            : [];
+        await loadScheduleEditorWorkflowSteps(schedule.workflowTypeId || "", state.scheduleEditorSelectedStepFileNames);
+        renderScheduleEditorBenchmarkList();
+        syncScheduleEditorVisibility();
+        setScheduleEditorStatus(`Loaded schedule '${scheduleName}'.`, "success");
+    } catch (error) {
+        logTerminal(`[ERROR] Failed to load schedule '${scheduleName}': ${error.message}`, "red");
+        setScheduleEditorStatus(`Failed to load schedule '${scheduleName}'.`, "error");
+    }
+}
+
+function buildScheduleEditorPayload() {
+    const scheduleName = (ui.scheduleEditorNameInput?.value || "").trim();
+    const workflowTypeId = (ui.scheduleEditorWorkflowSelect?.value || "").trim();
+    const triggerType = ui.scheduleEditorTriggerType?.value || "immediate";
+    const scheduleType = ui.scheduleEditorScheduleType?.value || "regular";
+    const specificTimeLocal = (ui.scheduleEditorSpecificTime?.value || "").trim();
+    const intervalHours = Number(ui.scheduleEditorIntervalHours?.value || 0);
+    const intervalMinutes = Number(ui.scheduleEditorIntervalMinutes?.value || 0);
+    const intervalSeconds = Number(ui.scheduleEditorIntervalSeconds?.value || 0);
+
+    const regularSelection = {
+        serverId: ui.scheduleEditorRegularServer?.value || "",
+        modelId: ui.scheduleEditorRegularModel?.value || ""
+    };
+    const benchmarkSelections = state.scheduleEditorBenchmarkSelectionKeys.map((key) => {
+        const [serverId, modelId] = key.split("|");
+        return { serverId, modelId };
+    });
+
+    return {
+        scheduleName,
+        workflowTypeId,
+        selectedStepFileNames: state.scheduleEditorSelectedStepFileNames,
+        trigger: {
+            type: triggerType,
+            specificTimeLocal,
+            intervalHours,
+            intervalMinutes,
+            intervalSeconds
+        },
+        scheduleType,
+        regularSelection,
+        benchmarkSelections
+    };
+}
+
+async function saveScheduleFromEditor() {
+    const payload = buildScheduleEditorPayload();
+    const namePattern = /^[A-Za-z0-9_-]+$/;
+
+    if (!namePattern.test(payload.scheduleName)) {
+        setScheduleEditorStatus("Schedule name must contain only letters, numbers, dashes (-), or underscores (_).", "error");
+        return;
+    }
+
+    if (!payload.workflowTypeId) {
+        setScheduleEditorStatus("Workflow type is required.", "error");
+        return;
+    }
+
+    if ((state.scheduleEditorWorkflowSteps || []).length > 1 && (payload.selectedStepFileNames || []).length === 0) {
+        setScheduleEditorStatus("Select at least one step for multi-step workflows.", "error");
+        return;
+    }
+
+    const originalText = ui.scheduleEditorSaveBtn?.textContent || "Save Schedule";
+    if (ui.scheduleEditorSaveBtn) {
+        ui.scheduleEditorSaveBtn.textContent = "Saving...";
+        ui.scheduleEditorSaveBtn.disabled = true;
+    }
+
+    try {
+        if (state.schedules.some((item) => item.scheduleName === payload.scheduleName)) {
+            await apiClient.updateSchedule(payload.scheduleName, payload);
+        } else {
+            await apiClient.createSchedule(payload);
+        }
+
+        setScheduleEditorStatus(`Saved schedule '${payload.scheduleName}'.`, "success");
+        logTerminal(`[SCHEDULE] Saved ${payload.scheduleName}`, "green");
+        await loadSchedules();
+        state.scheduleEditorCurrentName = payload.scheduleName;
+        if (ui.scheduleEditorExistingSelect) {
+            ui.scheduleEditorExistingSelect.value = payload.scheduleName;
+        }
+        closeScheduleEditorModal();
+        openScheduleModal();
+    } catch (error) {
+        setScheduleEditorStatus(`Failed to save schedule: ${error.message}`, "error");
+    } finally {
+        if (ui.scheduleEditorSaveBtn) {
+            ui.scheduleEditorSaveBtn.textContent = originalText;
+            ui.scheduleEditorSaveBtn.disabled = false;
+        }
+    }
+}
+
+function setWorkflowEditorStatus(message, tone = "neutral") {
+    if (!ui.workflowEditorStatus) {
+        return;
+    }
+
+    const classByTone = {
+        neutral: "text-sm text-slate-600",
+        success: "text-sm text-emerald-700",
+        warning: "text-sm text-amber-700",
+        error: "text-sm text-red-700"
+    };
+
+    ui.workflowEditorStatus.textContent = message || "";
+    ui.workflowEditorStatus.className = classByTone[tone] || classByTone.neutral;
+}
+
+function setWorkflowEditorDirty(isDirty) {
+    state.workflowEditorDirty = Boolean(isDirty);
+    if (state.workflowEditorDirty) {
+        setWorkflowEditorStatus("You have unsaved changes.", "warning");
+    } else if (state.workflowEditorSelectedStepFileName) {
+        setWorkflowEditorStatus("Step loaded.", "neutral");
+    } else {
+        setWorkflowEditorStatus("Make a selection to begin editing.", "neutral");
+    }
+}
+
+function updateWorkflowEditorSelectionLabels() {
+    if (ui.workflowEditorSelectedWorkflow) {
+        ui.workflowEditorSelectedWorkflow.textContent = state.workflowEditorSelectedWorkflowName || state.workflowEditorSelectedWorkflowId || "(none)";
+    }
+
+    if (ui.workflowEditorSelectedStep) {
+        ui.workflowEditorSelectedStep.textContent = state.workflowEditorSelectedStepFileName || "(none)";
+    }
+}
+
+function hasTicketIterationExecutionMode(metadataJsonContent) {
+    if (typeof metadataJsonContent !== "string" || metadataJsonContent.trim().length === 0) {
+        return false;
+    }
+
+    try {
+        const payload = JSON.parse(metadataJsonContent);
+        if (!payload || typeof payload !== "object") {
+            return false;
+        }
+
+        const executionMode = typeof payload.executionMode === "string"
+            ? payload.executionMode.trim().toLowerCase()
+            : "";
+        return executionMode === "ticketiteration";
+    } catch {
+        return false;
+    }
+}
+
+function buildDefaultTicketIterationMetadataContent() {
+    return JSON.stringify({
+        executionMode: "ticketIteration",
+        ticketSource: "{{TICKETS_DIR}}/tickets.json",
+        completedSource: "{{TICKETS_DIR}}/completed.json",
+        maxRetriesPerTicket: 3
+    }, null, 2);
+}
+
+function syncWorkflowEditorIterationLayout() {
+    const hasStep = Boolean(state.workflowEditorSelectedStepFileName);
+    const showMetadataPanel = hasStep && state.workflowEditorHasTicketIteration;
+    const showCreateIterationButton = hasStep && !state.workflowEditorHasTicketIteration;
+
+    if (ui.workflowEditorMetadataPanel) {
+        ui.workflowEditorMetadataPanel.classList.toggle("hidden", !showMetadataPanel);
+    }
+
+    if (ui.workflowEditorEditorsGrid) {
+        ui.workflowEditorEditorsGrid.classList.toggle("xl:grid-cols-2", showMetadataPanel);
+        ui.workflowEditorEditorsGrid.classList.toggle("xl:grid-cols-1", !showMetadataPanel);
+    }
+
+    if (ui.workflowEditorCreateIterationBtn) {
+        ui.workflowEditorCreateIterationBtn.classList.toggle("hidden", !showCreateIterationButton);
+    }
+}
+
+function syncWorkflowEditorControls() {
+    const hasWorkflow = Boolean(state.workflowEditorSelectedWorkflowId);
+    const hasStep = Boolean(state.workflowEditorSelectedStepFileName);
+    const isLocked = state.workflowEditorLoading;
+    const canEditStep = hasWorkflow && hasStep && !isLocked;
+
+    if (ui.workflowEditorOpenCreateBtn) {
+        ui.workflowEditorOpenCreateBtn.disabled = isLocked;
+    }
+
+    if (ui.workflowEditorAddStepBtn) {
+        ui.workflowEditorAddStepBtn.disabled = !hasWorkflow || isLocked;
+    }
+
+    if (ui.workflowEditorSaveBtn) {
+        ui.workflowEditorSaveBtn.disabled = !canEditStep;
+    }
+
+    if (ui.workflowEditorMarkdown) {
+        ui.workflowEditorMarkdown.disabled = !canEditStep;
+    }
+
+    if (ui.workflowEditorMetadata) {
+        ui.workflowEditorMetadata.disabled = !canEditStep;
+    }
+
+    if (ui.workflowEditorCreateSubmitBtn) {
+        ui.workflowEditorCreateSubmitBtn.disabled = isLocked;
+    }
+
+    if (ui.workflowEditorCreateIterationBtn) {
+        ui.workflowEditorCreateIterationBtn.disabled = !hasStep || state.workflowEditorHasTicketIteration || isLocked;
+    }
+
+    if (ui.manageWorkflowTypesBtn) {
+        ui.manageWorkflowTypesBtn.disabled = state.busy;
+    }
+
+    syncWorkflowEditorIterationLayout();
+    updateWorkflowEditorSelectionLabels();
+}
+
+function renderWorkflowEditorWorkflowList() {
+    if (!ui.workflowEditorWorkflowsList) {
+        return;
+    }
+
+    if (state.workflowTypes.length === 0) {
+        ui.workflowEditorWorkflowsList.innerHTML = `<div class="text-sm text-slate-500">No workflow types found.</div>`;
+        return;
+    }
+
+    ui.workflowEditorWorkflowsList.innerHTML = state.workflowTypes.map((workflowType, index) => {
+        const isSelected = workflowType.id === state.workflowEditorSelectedWorkflowId;
+        const rowBackgroundClass = index % 2 === 0 ? "bg-white" : "bg-slate-50";
+        const selectButtonClass = isSelected
+            ? "w-full rounded border border-indigo-300 bg-indigo-50 px-2 py-2 text-left text-sm font-semibold text-indigo-800"
+            : `w-full rounded border border-slate-200 ${rowBackgroundClass} px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-100`;
+        const isDeletingSelectedWorkflow = isSelected && state.workflowEditorDeletingWorkflowId === workflowType.id;
+        const deleteButtonDisabled = isDeletingSelectedWorkflow ? "disabled" : "";
+        const showDeleteButton = isSelected && state.workflowEditorDeleteWorkflowVisibleId === workflowType.id;
+        const workflowDeleteButton = showDeleteButton
+            ? `
+                <button type="button"
+                        data-workflow-editor-action="delete-workflow"
+                        data-workflow-id="${escapeHtml(workflowType.id)}"
+                        class="rounded bg-red-600 px-2.5 py-2 text-xs font-semibold text-white hover:bg-red-500 transition disabled:opacity-50"
+                        ${deleteButtonDisabled}>
+                    Delete
+                </button>
+            `
+            : "";
+        return `
+            <div class="flex items-start gap-2">
+                <button type="button"
+                        data-workflow-editor-action="select-workflow"
+                        data-workflow-id="${escapeHtml(workflowType.id)}"
+                        class="${selectButtonClass}">
+                    <div>${escapeHtml(workflowType.name || workflowType.id)}</div>
+                    <div class="text-xs ${isSelected ? "text-indigo-700" : "text-slate-500"}">${Number(workflowType.stepCount || 0)} step${Number(workflowType.stepCount || 0) === 1 ? "" : "s"}</div>
+                </button>
+                ${workflowDeleteButton}
+            </div>
+        `;
+    }).join("<div class=\"h-2\"></div>");
+}
+
+function scrollWorkflowEditorWorkflowIntoView(workflowTypeId, behavior = "smooth") {
+    if (!ui.workflowEditorWorkflowsList || !workflowTypeId) {
+        return;
+    }
+
+    const workflowButtons = ui.workflowEditorWorkflowsList.querySelectorAll("[data-workflow-editor-action=\"select-workflow\"]");
+    for (const button of workflowButtons) {
+        if (!(button instanceof HTMLElement)) {
+            continue;
+        }
+
+        if ((button.dataset.workflowId || "").trim() !== workflowTypeId) {
+            continue;
+        }
+
+        button.scrollIntoView({ behavior, block: "nearest" });
+        break;
+    }
+}
+
+function renderWorkflowEditorStepList() {
+    if (!ui.workflowEditorStepsList) {
+        return;
+    }
+
+    if (!state.workflowEditorSelectedWorkflowId) {
+        ui.workflowEditorStepsList.innerHTML = `<div class="text-sm text-slate-500">Select a workflow type.</div>`;
+        return;
+    }
+
+    if (state.workflowEditorSteps.length === 0) {
+        ui.workflowEditorStepsList.innerHTML = `<div class="text-sm text-slate-500">No steps yet. Add your first step.</div>`;
+        return;
+    }
+
+    ui.workflowEditorStepsList.innerHTML = state.workflowEditorSteps.map((step, index) => {
+        const isSelected = step.stepFileName === state.workflowEditorSelectedStepFileName;
+        const rowBackgroundClass = index % 2 === 0 ? "bg-white" : "bg-slate-50";
+        const selectButtonClass = isSelected
+            ? "w-full rounded border border-emerald-300 bg-emerald-50 px-2 py-2 text-left text-sm font-semibold text-emerald-800"
+            : `w-full rounded border border-slate-200 ${rowBackgroundClass} px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-100`;
+        const metadataTag = step.hasMetadata
+            ? `<span class="ml-2 inline-flex items-center rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">json</span>`
+            : "";
+        const isDeletingSelectedStep = isSelected && state.workflowEditorDeletingStepFileName === step.stepFileName;
+        const showDeleteButton = isSelected && state.workflowEditorDeleteStepVisibleFileName === step.stepFileName;
+        const deleteButton = showDeleteButton
+            ? `
+                <button type="button"
+                        data-workflow-editor-action="delete-step"
+                        data-step-file-name="${escapeHtml(step.stepFileName)}"
+                        class="rounded bg-red-600 px-2.5 py-2 text-xs font-semibold text-white hover:bg-red-500 transition disabled:opacity-50"
+                        ${isDeletingSelectedStep ? "disabled" : ""}>
+                    Delete
+                </button>
+            `
+            : "";
+        return `
+            <div class="flex items-start gap-2">
+                <button type="button"
+                        data-workflow-editor-action="select-step"
+                        data-step-file-name="${escapeHtml(step.stepFileName)}"
+                        class="${selectButtonClass}">
+                    <div>
+                        ${index + 1}. ${escapeHtml(step.stepFileName)}
+                        ${metadataTag}
+                    </div>
+                </button>
+                ${deleteButton}
+            </div>
+        `;
+    }).join("<div class=\"h-2\"></div>");
+}
+
+function suggestWorkflowEditorStepName() {
+    const existing = new Set(state.workflowEditorSteps.map((item) => (item.stepFileName || "").toLowerCase()));
+    let nextIndex = state.workflowEditorSteps.length + 1;
+    while (true) {
+        const candidate = `Step${nextIndex}.md`;
+        if (!existing.has(candidate.toLowerCase())) {
+            return candidate;
+        }
+        nextIndex += 1;
+    }
+}
+
+function setWorkflowEditorLoading(isLoading) {
+    state.workflowEditorLoading = Boolean(isLoading);
+    syncWorkflowEditorControls();
+}
+
+function confirmWorkflowEditorDiscard(nextActionLabel = "continue") {
+    if (!state.workflowEditorDirty) {
+        return true;
+    }
+
+    return window.confirm(`You have unsaved changes. Discard changes and ${nextActionLabel}?`);
+}
+
+function applyWorkflowEditorStepContent(payload) {
+    state.workflowEditorSelectedStepFileName = payload?.stepFileName || state.workflowEditorSelectedStepFileName;
+    state.workflowEditorMarkdownDraft = payload?.markdownContent || "";
+    state.workflowEditorMetadataDraft = payload?.metadataJsonContent || "";
+    state.workflowEditorHasTicketIteration = hasTicketIterationExecutionMode(state.workflowEditorMetadataDraft);
+
+    if (ui.workflowEditorMarkdown) {
+        ui.workflowEditorMarkdown.value = state.workflowEditorMarkdownDraft;
+    }
+
+    if (ui.workflowEditorMetadata) {
+        ui.workflowEditorMetadata.value = state.workflowEditorMetadataDraft;
+    }
+
+    setWorkflowEditorDirty(false);
+    renderWorkflowEditorStepList();
+    syncWorkflowEditorControls();
+}
+
+async function loadWorkflowEditorSteps(workflowTypeId) {
+    const payload = await apiClient.getWorkflowTypeSteps(workflowTypeId);
+    state.workflowEditorSteps = Array.isArray(payload?.steps) ? payload.steps : [];
+    renderWorkflowEditorStepList();
+}
+
+async function selectWorkflowEditorStep(stepFileName, { skipDirtyGuard = false, revealDeleteButton = false } = {}) {
+    if (!state.workflowEditorSelectedWorkflowId) {
+        return;
+    }
+
+    if (stepFileName === state.workflowEditorSelectedStepFileName) {
+        state.workflowEditorDeleteStepVisibleFileName = revealDeleteButton ? stepFileName : "";
+        renderWorkflowEditorStepList();
+        return;
+    }
+
+    if (!skipDirtyGuard && state.workflowEditorSelectedStepFileName && stepFileName !== state.workflowEditorSelectedStepFileName) {
+        const ok = confirmWorkflowEditorDiscard("switch steps");
+        if (!ok) {
+            return;
+        }
+    }
+
+    state.workflowEditorDeleteStepVisibleFileName = "";
+    renderWorkflowEditorStepList();
+    setWorkflowEditorLoading(true);
+    try {
+        const payload = await apiClient.getWorkflowTypeStep(state.workflowEditorSelectedWorkflowId, stepFileName);
+        applyWorkflowEditorStepContent(payload);
+        state.workflowEditorDeleteStepVisibleFileName = revealDeleteButton ? payload.stepFileName : "";
+        renderWorkflowEditorStepList();
+        setWorkflowEditorStatus(`Loaded ${payload.stepFileName}.`, "neutral");
+    } catch (error) {
+        setWorkflowEditorStatus(`Failed to load step: ${error.message}`, "error");
+        logTerminal(`[ERROR] Failed to load step: ${error.message}`, "red");
+    } finally {
+        setWorkflowEditorLoading(false);
+    }
+}
+
+async function selectWorkflowEditorWorkflow(workflowTypeId, { skipDirtyGuard = false, preferredStepFileName = "", revealDeleteButton = false, scrollIntoView = false } = {}) {
+    if (!workflowTypeId) {
+        return;
+    }
+
+    if (workflowTypeId === state.workflowEditorSelectedWorkflowId) {
+        state.workflowEditorDeleteWorkflowVisibleId = revealDeleteButton ? workflowTypeId : "";
+        renderWorkflowEditorWorkflowList();
+        if (scrollIntoView) {
+            scrollWorkflowEditorWorkflowIntoView(workflowTypeId);
+        }
+        return;
+    }
+
+    if (!skipDirtyGuard && state.workflowEditorSelectedWorkflowId && workflowTypeId !== state.workflowEditorSelectedWorkflowId) {
+        const ok = confirmWorkflowEditorDiscard("switch workflows");
+        if (!ok) {
+            return;
+        }
+    }
+
+    const workflow = state.workflowTypes.find((item) => item.id === workflowTypeId);
+    state.workflowEditorSelectedWorkflowId = workflowTypeId;
+    state.workflowEditorSelectedWorkflowName = workflow?.name || workflowTypeId;
+    state.workflowEditorDeleteWorkflowVisibleId = revealDeleteButton ? workflowTypeId : "";
+    state.workflowEditorDeleteStepVisibleFileName = "";
+    state.workflowEditorSelectedStepFileName = "";
+    state.workflowEditorMarkdownDraft = "";
+    state.workflowEditorMetadataDraft = "";
+    state.workflowEditorHasTicketIteration = false;
+    if (ui.workflowEditorMarkdown) {
+        ui.workflowEditorMarkdown.value = "";
+    }
+    if (ui.workflowEditorMetadata) {
+        ui.workflowEditorMetadata.value = "";
+    }
+    setWorkflowEditorDirty(false);
+    renderWorkflowEditorWorkflowList();
+    if (scrollIntoView) {
+        scrollWorkflowEditorWorkflowIntoView(workflowTypeId);
+    }
+    renderWorkflowEditorStepList();
+    syncWorkflowEditorControls();
+    setWorkflowEditorStatus("Loading steps...", "neutral");
+
+    setWorkflowEditorLoading(true);
+    try {
+        await loadWorkflowEditorSteps(workflowTypeId);
+        const firstStep = preferredStepFileName || state.workflowEditorSteps[0]?.stepFileName || "";
+        if (firstStep) {
+            await selectWorkflowEditorStep(firstStep, { skipDirtyGuard: true });
+        } else {
+            setWorkflowEditorStatus("No steps found. Add a step to begin.", "warning");
+        }
+    } catch (error) {
+        state.workflowEditorSteps = [];
+        renderWorkflowEditorStepList();
+        setWorkflowEditorStatus(`Failed to load steps: ${error.message}`, "error");
+        logTerminal(`[ERROR] Failed to load workflow steps: ${error.message}`, "red");
+    } finally {
+        setWorkflowEditorLoading(false);
+    }
+}
+
+function openWorkflowEditorCreateModal() {
+    if (!ui.workflowEditorCreateModal) {
+        return;
+    }
+
+    ui.workflowEditorCreateModal.classList.remove("hidden");
+    ui.workflowEditorCreateModal.classList.add("flex");
+    if (ui.workflowEditorCreateNameInput) {
+        ui.workflowEditorCreateNameInput.value = "";
+        ui.workflowEditorCreateNameInput.focus();
+    }
+}
+
+function closeWorkflowEditorCreateModal() {
+    if (!ui.workflowEditorCreateModal) {
+        return;
+    }
+
+    ui.workflowEditorCreateModal.classList.add("hidden");
+    ui.workflowEditorCreateModal.classList.remove("flex");
+    if (ui.workflowEditorCreateNameInput) {
+        ui.workflowEditorCreateNameInput.value = "";
+    }
+}
+
+async function createWorkflowTypeFromEditor() {
+    const workflowTypeId = (ui.workflowEditorCreateNameInput?.value || "").trim();
+
+    if (!/^[A-Za-z0-9_-]+$/.test(workflowTypeId)) {
+        setWorkflowEditorStatus("Workflow id must match: letters, numbers, dashes, underscores.", "error");
+        return;
+    }
+
+    setWorkflowEditorLoading(true);
+    try {
+        const result = await apiClient.createWorkflowType(workflowTypeId);
+        await loadWorkflowTypes();
+        renderWorkflowEditorWorkflowList();
+        syncWorkflowTypePicker();
+        state.selectedWorkflowTypeId = workflowTypeId;
+        state.selectedWorkflowTypeName = state.workflowTypes.find((item) => item.id === workflowTypeId)?.name || workflowTypeId;
+        syncWorkflowTypePicker();
+        setRequiredFieldValidation(!((state.selectedProjectName || state.targetProjectName || "").trim()), !state.selectedWorkflowTypeId);
+        updateBusyState(state.busy);
+        closeWorkflowEditorCreateModal();
+
+        logTerminal(`[WORKFLOW] Created workflow type ${workflowTypeId}`, "green");
+        setWorkflowEditorStatus("Workflow created successfully.", "success");
+        const firstStep = result?.createdFiles?.find((fileName) => fileName.toLowerCase().endsWith(".md")) || "Step1.md";
+        await selectWorkflowEditorWorkflow(workflowTypeId, {
+            skipDirtyGuard: true,
+            preferredStepFileName: firstStep,
+            scrollIntoView: true
+        });
+    } catch (error) {
+        setWorkflowEditorStatus(`Failed to create workflow: ${error.message}`, "error");
+        logTerminal(`[ERROR] Failed to create workflow type: ${error.message}`, "red");
+    } finally {
+        setWorkflowEditorLoading(false);
+    }
+}
+
+async function addStepFromWorkflowEditor() {
+    if (!state.workflowEditorSelectedWorkflowId) {
+        setWorkflowEditorStatus("Select a workflow type before adding a step.", "warning");
+        return;
+    }
+
+    if (state.workflowEditorDirty) {
+        const ok = confirmWorkflowEditorDiscard("add a new step");
+        if (!ok) {
+            return;
+        }
+    }
+
+    const suggestedStepFileName = suggestWorkflowEditorStepName();
+    const enteredStepFileName = window.prompt("Enter a step file name (.md)", suggestedStepFileName);
+    if (enteredStepFileName === null) {
+        return;
+    }
+
+    const trimmedStepFileName = enteredStepFileName.trim();
+    const stepFileName = trimmedStepFileName.length > 0
+        ? trimmedStepFileName
+        : suggestedStepFileName;
+
+    setWorkflowEditorLoading(true);
+    try {
+        const result = await apiClient.addWorkflowTypeStep(state.workflowEditorSelectedWorkflowId, stepFileName || null);
+        await loadWorkflowTypes();
+        syncWorkflowTypePicker();
+        await loadWorkflowEditorSteps(state.workflowEditorSelectedWorkflowId);
+        state.workflowEditorDeleteStepVisibleFileName = "";
+        applyWorkflowEditorStepContent({
+            stepFileName: result?.step?.stepFileName,
+            markdownContent: result?.step?.markdownContent,
+            metadataJsonContent: result?.step?.metadataJsonContent
+        });
+
+        setWorkflowEditorStatus(`Added ${result?.step?.stepFileName || "new step"}.`, "success");
+        logTerminal(`[WORKFLOW] Added step ${result?.step?.stepFileName || "(unknown)"}`, "green");
+    } catch (error) {
+        setWorkflowEditorStatus(`Failed to add step: ${error.message}`, "error");
+        logTerminal(`[ERROR] Failed to add workflow step: ${error.message}`, "red");
+    } finally {
+        setWorkflowEditorLoading(false);
+    }
+}
+
+async function createTicketIterationForCurrentStep() {
+    const workflowTypeId = state.workflowEditorSelectedWorkflowId;
+    const stepFileName = state.workflowEditorSelectedStepFileName;
+    if (!workflowTypeId || !stepFileName) {
+        setWorkflowEditorStatus("Select a step before creating ticket iteration.", "warning");
+        return;
+    }
+
+    if (state.workflowEditorHasTicketIteration) {
+        setWorkflowEditorStatus("Ticket iteration already exists for this step.", "neutral");
+        return;
+    }
+
+    const markdownContent = ui.workflowEditorMarkdown?.value ?? state.workflowEditorMarkdownDraft ?? "";
+    const metadataJsonContent = buildDefaultTicketIterationMetadataContent();
+
+    setWorkflowEditorLoading(true);
+    try {
+        await apiClient.saveWorkflowTypeStep(
+            workflowTypeId,
+            stepFileName,
+            markdownContent,
+            metadataJsonContent
+        );
+
+        state.workflowEditorMarkdownDraft = markdownContent;
+        state.workflowEditorMetadataDraft = metadataJsonContent;
+        state.workflowEditorHasTicketIteration = true;
+
+        if (ui.workflowEditorMetadata) {
+            ui.workflowEditorMetadata.value = metadataJsonContent;
+        }
+
+        setWorkflowEditorDirty(false);
+        await loadWorkflowTypes();
+        await loadWorkflowEditorSteps(workflowTypeId);
+        setWorkflowEditorStatus("Ticket iteration created.", "success");
+        logTerminal(`[WORKFLOW] Ticket iteration created for ${workflowTypeId}/${stepFileName}`, "green");
+    } catch (error) {
+        setWorkflowEditorStatus(`Failed to create ticket iteration: ${error.message}`, "error");
+        logTerminal(`[ERROR] Failed to create ticket iteration: ${error.message}`, "red");
+    } finally {
+        setWorkflowEditorLoading(false);
+    }
+}
+
+async function saveWorkflowEditorStep() {
+    if (!state.workflowEditorSelectedWorkflowId || !state.workflowEditorSelectedStepFileName) {
+        setWorkflowEditorStatus("Select a step before saving.", "warning");
+        return;
+    }
+
+    const markdownContent = ui.workflowEditorMarkdown?.value ?? "";
+    const metadataRaw = ui.workflowEditorMetadata?.value ?? "";
+    const metadataTrimmed = metadataRaw.trim();
+
+    if (metadataTrimmed.length > 0) {
+        try {
+            JSON.parse(metadataTrimmed);
+        } catch (error) {
+            setWorkflowEditorStatus(`Metadata JSON is invalid: ${error.message}`, "error");
+            return;
+        }
+    }
+
+    setWorkflowEditorLoading(true);
+    try {
+        await apiClient.saveWorkflowTypeStep(
+            state.workflowEditorSelectedWorkflowId,
+            state.workflowEditorSelectedStepFileName,
+            markdownContent,
+            metadataTrimmed.length > 0 ? metadataRaw : ""
+        );
+
+        state.workflowEditorMarkdownDraft = markdownContent;
+        state.workflowEditorMetadataDraft = metadataTrimmed.length > 0 ? metadataRaw : "";
+        state.workflowEditorHasTicketIteration = hasTicketIterationExecutionMode(state.workflowEditorMetadataDraft);
+        setWorkflowEditorDirty(false);
+        await loadWorkflowTypes();
+        await loadWorkflowEditorSteps(state.workflowEditorSelectedWorkflowId);
+        setWorkflowEditorStatus("Step saved.", "success");
+        logTerminal(`[WORKFLOW] Saved ${state.workflowEditorSelectedWorkflowId}/${state.workflowEditorSelectedStepFileName}`, "green");
+    } catch (error) {
+        setWorkflowEditorStatus(`Failed to save step: ${error.message}`, "error");
+        logTerminal(`[ERROR] Failed to save step: ${error.message}`, "red");
+    } finally {
+        setWorkflowEditorLoading(false);
+    }
+}
+
+async function deleteWorkflowFromEditor() {
+    const workflowTypeId = state.workflowEditorSelectedWorkflowId;
+    if (!workflowTypeId) {
+        setWorkflowEditorStatus("Select a workflow type before deleting.", "warning");
+        return;
+    }
+    if (state.workflowEditorDeletingWorkflowId === workflowTypeId) {
+        return;
+    }
+
+    if (state.workflowEditorDirty) {
+        const discard = confirmWorkflowEditorDiscard("delete this workflow");
+        if (!discard) {
+            return;
+        }
+    }
+
+    const confirmed = window.confirm(`Delete workflow type "${workflowTypeId}" and all steps? This cannot be undone.`);
+    if (!confirmed) {
+        return;
+    }
+
+    state.workflowEditorDeletingWorkflowId = workflowTypeId;
+    state.workflowEditorDeletingStepFileName = "";
+    state.workflowEditorDeleteWorkflowVisibleId = workflowTypeId;
+    state.workflowEditorDeleteStepVisibleFileName = "";
+    renderWorkflowEditorWorkflowList();
+    renderWorkflowEditorStepList();
+    setWorkflowEditorLoading(true);
+    try {
+        await apiClient.deleteWorkflowType(workflowTypeId);
+
+        if (state.selectedWorkflowTypeId === workflowTypeId) {
+            state.selectedWorkflowTypeId = "";
+            state.selectedWorkflowTypeName = "";
+        }
+
+        state.workflowEditorSelectedWorkflowId = "";
+        state.workflowEditorSelectedWorkflowName = "";
+        state.workflowEditorDeleteWorkflowVisibleId = "";
+        state.workflowEditorDeleteStepVisibleFileName = "";
+        state.workflowEditorSelectedStepFileName = "";
+        state.workflowEditorSteps = [];
+        state.workflowEditorMarkdownDraft = "";
+        state.workflowEditorMetadataDraft = "";
+        state.workflowEditorHasTicketIteration = false;
+        if (ui.workflowEditorMarkdown) {
+            ui.workflowEditorMarkdown.value = "";
+        }
+        if (ui.workflowEditorMetadata) {
+            ui.workflowEditorMetadata.value = "";
+        }
+        setWorkflowEditorDirty(false);
+
+        await loadWorkflowTypes();
+        syncWorkflowTypePicker();
+        renderWorkflowEditorWorkflowList();
+        renderWorkflowEditorStepList();
+        setRequiredFieldValidation(!((state.selectedProjectName || state.targetProjectName || "").trim()), !state.selectedWorkflowTypeId);
+        updateBusyState(state.busy);
+
+        const nextWorkflowId = state.workflowTypes[0]?.id || "";
+        if (nextWorkflowId) {
+            await selectWorkflowEditorWorkflow(nextWorkflowId, { skipDirtyGuard: true });
+        } else {
+            setWorkflowEditorStatus("Workflow deleted. No workflow types remain.", "success");
+        }
+
+        logTerminal(`[WORKFLOW] Deleted workflow type ${workflowTypeId}`, "green");
+    } catch (error) {
+        setWorkflowEditorStatus(`Failed to delete workflow: ${error.message}`, "error");
+        logTerminal(`[ERROR] Failed to delete workflow type: ${error.message}`, "red");
+    } finally {
+        state.workflowEditorDeletingWorkflowId = "";
+        renderWorkflowEditorWorkflowList();
+        renderWorkflowEditorStepList();
+        setWorkflowEditorLoading(false);
+    }
+}
+
+async function deleteStepFromEditor() {
+    const workflowTypeId = state.workflowEditorSelectedWorkflowId;
+    const stepFileName = state.workflowEditorSelectedStepFileName;
+    if (!workflowTypeId || !stepFileName) {
+        setWorkflowEditorStatus("Select a step before deleting.", "warning");
+        return;
+    }
+    if (state.workflowEditorDeletingStepFileName === stepFileName) {
+        return;
+    }
+
+    if (state.workflowEditorDirty) {
+        const discard = confirmWorkflowEditorDiscard("delete this step");
+        if (!discard) {
+            return;
+        }
+    }
+
+    const confirmed = window.confirm(`Delete step "${stepFileName}" from "${workflowTypeId}"? This cannot be undone.`);
+    if (!confirmed) {
+        return;
+    }
+
+    state.workflowEditorDeletingStepFileName = stepFileName;
+    state.workflowEditorDeleteStepVisibleFileName = stepFileName;
+    renderWorkflowEditorStepList();
+    setWorkflowEditorLoading(true);
+    try {
+        await apiClient.deleteWorkflowTypeStep(workflowTypeId, stepFileName);
+
+        await loadWorkflowTypes();
+        syncWorkflowTypePicker();
+        await loadWorkflowEditorSteps(workflowTypeId);
+
+        const nextStep = state.workflowEditorSteps[0]?.stepFileName || "";
+        if (nextStep) {
+            await selectWorkflowEditorStep(nextStep, { skipDirtyGuard: true });
+            setWorkflowEditorStatus(`Deleted ${stepFileName}.`, "success");
+        } else {
+            state.workflowEditorSelectedStepFileName = "";
+            state.workflowEditorDeleteStepVisibleFileName = "";
+            state.workflowEditorMarkdownDraft = "";
+            state.workflowEditorMetadataDraft = "";
+            state.workflowEditorHasTicketIteration = false;
+            if (ui.workflowEditorMarkdown) {
+                ui.workflowEditorMarkdown.value = "";
+            }
+            if (ui.workflowEditorMetadata) {
+                ui.workflowEditorMetadata.value = "";
+            }
+            setWorkflowEditorDirty(false);
+            setWorkflowEditorStatus("Step deleted. This workflow has no steps.", "success");
+            renderWorkflowEditorStepList();
+            syncWorkflowEditorControls();
+        }
+
+        logTerminal(`[WORKFLOW] Deleted step ${workflowTypeId}/${stepFileName}`, "green");
+    } catch (error) {
+        setWorkflowEditorStatus(`Failed to delete step: ${error.message}`, "error");
+        logTerminal(`[ERROR] Failed to delete step: ${error.message}`, "red");
+    } finally {
+        state.workflowEditorDeletingStepFileName = "";
+        renderWorkflowEditorStepList();
+        setWorkflowEditorLoading(false);
+    }
+}
+
+async function openWorkflowEditorModal() {
+    if (!ui.workflowEditorModal) {
+        return;
+    }
+
+    if (state.workflowEditorOpen) {
+        return;
+    }
+
+    state.workflowEditorOpen = true;
+    state.workflowEditorDeletingWorkflowId = "";
+    state.workflowEditorDeletingStepFileName = "";
+    state.workflowEditorDeleteWorkflowVisibleId = "";
+    state.workflowEditorDeleteStepVisibleFileName = "";
+    closeWorkflowEditorCreateModal();
+    ui.workflowEditorModal.classList.remove("hidden");
+    ui.workflowEditorModal.classList.add("flex");
+    setWorkflowEditorStatus("Loading workflow types...", "neutral");
+    setWorkflowEditorLoading(true);
+
+    try {
+        await loadWorkflowTypes();
+        renderWorkflowEditorWorkflowList();
+        const initialWorkflowId = state.workflowEditorSelectedWorkflowId
+            || state.selectedWorkflowTypeId
+            || state.workflowTypes[0]?.id
+            || "";
+        if (initialWorkflowId) {
+            await selectWorkflowEditorWorkflow(initialWorkflowId, {
+                skipDirtyGuard: true,
+                scrollIntoView: true
+            });
+        } else {
+            setWorkflowEditorStatus("Create a workflow type to get started.", "warning");
+            state.workflowEditorSteps = [];
+            renderWorkflowEditorStepList();
+        }
+    } finally {
+        setWorkflowEditorLoading(false);
+        syncWorkflowEditorControls();
+    }
+}
+
+function closeWorkflowEditorModal() {
+    if (!ui.workflowEditorModal || !state.workflowEditorOpen) {
+        return;
+    }
+
+    if (!confirmWorkflowEditorDiscard("close the workflow editor")) {
+        return;
+    }
+
+    state.workflowEditorOpen = false;
+    state.workflowEditorDeletingWorkflowId = "";
+    state.workflowEditorDeletingStepFileName = "";
+    state.workflowEditorDeleteWorkflowVisibleId = "";
+    state.workflowEditorDeleteStepVisibleFileName = "";
+    closeWorkflowEditorCreateModal();
+    ui.workflowEditorModal.classList.add("hidden");
+    ui.workflowEditorModal.classList.remove("flex");
+    setWorkflowEditorDirty(false);
+    setWorkflowEditorLoading(false);
+}
+
 function openContentViewModal(title, subtitle, bodyHtml) {
     if (!ui.contentViewModal || !ui.contentViewTitle || !ui.contentViewSubtitle || !ui.contentViewBody) {
         return;
@@ -636,9 +2274,9 @@ async function openCurrentStepViewer() {
             return;
         }
 
-        const markdownHtml = renderAgentMarkdown(step.content || "");
-        const body = markdownHtml
-            ? `<article class="markdown-content text-slate-800">${markdownHtml}</article>`
+        const markdownRender = renderAgentMarkdown(step.content || "");
+        const body = markdownRender?.html
+            ? `<article class="markdown-content text-slate-800">${markdownRender.html}</article>`
             : `<pre class="whitespace-pre-wrap text-sm text-slate-800">${escapeHtml(step.content || "")}</pre>`;
         openContentViewModal(
             step.stepName || "Current Step",
@@ -698,9 +2336,9 @@ async function viewStepContent(stepNumber) {
             return;
         }
 
-        const markdownHtml = renderAgentMarkdown(step.content || "");
-        const body = markdownHtml
-            ? `<article class="markdown-content text-slate-800">${markdownHtml}</article>`
+        const markdownRender = renderAgentMarkdown(step.content || "");
+        const body = markdownRender?.html
+            ? `<article class="markdown-content text-slate-800">${markdownRender.html}</article>`
             : `<pre class="whitespace-pre-wrap text-sm text-slate-800">${escapeHtml(step.content || "")}</pre>`;
         openContentViewModal(
             step.stepName || `Step ${stepNumber}`,
@@ -908,6 +2546,9 @@ function resetLocalState() {
     state.selectedProjectDirectory = "";
     state.targetProjectName = "";
     state.showProjectConfigPanel = false;
+    state.newWorkflowIntentActive = false;
+    state.activeMode = "workflow";
+    state.scheduleState = null;
     state.isCurrentStepTicketIteration = false;
     state.ticketHeaderStatus = null;
     state.ticketProgress = null;
@@ -938,6 +2579,18 @@ function applySnapshot(snapshot) {
     state.totalSteps = snapshot.totalSteps || 0;
     state.currentStepName = snapshot.currentStepName || state.currentStepName;
     state.ticketProgress = snapshot.ticketProgress || null;
+    const hasScheduleState = Object.prototype.hasOwnProperty.call(snapshot, "scheduleState");
+    if (hasScheduleState) {
+        normalizeScheduleState(snapshot.scheduleState || null);
+    }
+
+    if (typeof snapshot.activeMode === "string" && snapshot.activeMode.trim().length > 0) {
+        const nextActiveMode = snapshot.activeMode.trim().toLowerCase();
+        const isScheduleCurrentlyActive = Boolean(state.scheduleState?.isActive);
+        if (nextActiveMode === "schedule" || hasScheduleState || !isScheduleCurrentlyActive) {
+            state.activeMode = nextActiveMode;
+        }
+    }
     state.statusText = snapshot.status || state.statusText;
     state.statusColor = normalizeColor(snapshot.color || state.statusColor, "green");
     const resumableTicketIteration = state.canResume &&
@@ -960,10 +2613,23 @@ function applySnapshot(snapshot) {
     if (versionEl && snapshot.appVersion) {
         versionEl.textContent = "v" + snapshot.appVersion;
     }
+
+    updateActiveModeBadge();
 }
 
 function applyHydration(payload) {
+    const snapshot = payload?.snapshot || {};
+    const hydrationIncludesMode = Object.prototype.hasOwnProperty.call(snapshot, "activeMode") ||
+        Object.prototype.hasOwnProperty.call(snapshot, "scheduleState");
+    const previousActiveMode = state.activeMode;
+    const previousScheduleState = state.scheduleState;
+
     resetLocalState();
+    if (!hydrationIncludesMode) {
+        state.activeMode = previousActiveMode || "workflow";
+        state.scheduleState = previousScheduleState || null;
+    }
+
     clearContainers();
 
     const history = Array.isArray(payload?.history) ? payload.history : [];
@@ -976,7 +2642,7 @@ function applyHydration(payload) {
         });
     }
 
-    applySnapshot(payload?.snapshot);
+    applySnapshot(snapshot);
 }
 
 function updateStatus(text, color) {
@@ -1071,17 +2737,78 @@ function setRequiredFieldValidation(projectInvalid, workflowInvalid) {
     ui.workflowTypeSelect.classList.toggle("ring-red-500", workflowInvalid);
 }
 
+function getIndexUiMode(isBusy) {
+    const scheduleModeActive = state.activeMode === "schedule" || Boolean(state.scheduleState?.isActive);
+    const hasWorkflowState = state.workflowRunning || state.canResume || state.currentStep > 0 || state.totalSteps > 0;
+    const hasSelectedProjectForNewRun = Boolean((state.selectedProjectName || state.targetProjectName || "").trim());
+    const hasSelectedWorkflowTypeForNewRun = Boolean(state.selectedWorkflowTypeId);
+    const missingStartSelection = !hasSelectedProjectForNewRun || !hasSelectedWorkflowTypeForNewRun;
+
+    if (state.wsDisconnected) {
+        return "websocketDisconnected";
+    }
+
+    if (scheduleModeActive) {
+        if (state.awaitingUserInput || (state.canResume && !state.workflowRunning && !isBusy)) {
+            return "scheduleWaitingForInput";
+        }
+
+        if (state.workflowRunning || isBusy || hasWorkflowState) {
+            return "scheduleRunning";
+        }
+
+        return "scheduleWaiting";
+    }
+
+    // New Workflow setup must override paused/waiting states so Start Workflow
+    // is available after the user explicitly enters setup mode.
+    if (state.showProjectConfigPanel) {
+        return "newWorkflowSetup";
+    }
+
+    // Waiting-for-input must override workflowRunning because status updates keep
+    // workflowRunning=true while paused for user feedback.
+    if (state.awaitingUserInput) {
+        return "waitingForInput";
+    }
+
+    if (state.workflowRunning && isBusy) {
+        return "workflowProcessing";
+    }
+
+    if (state.workflowRunning) {
+        return "workflowRunning";
+    }
+
+    if (state.canResume || (!state.workflowRunning && state.currentStep > 0)) {
+        return "pausedResumable";
+    }
+
+    if (state.llmHealthy === false) {
+        return "llmSetupRequired";
+    }
+
+    if (missingStartSelection) {
+        return "projectSelection";
+    }
+
+    return "idle";
+}
+
+function setButtonVisibility(button, visible, enabled = true) {
+    if (!button) {
+        return;
+    }
+
+    button.classList.toggle("hidden", !visible);
+    button.disabled = !visible || !enabled;
+}
+
 function updateBusyState(isBusy) {
     const isNewProjectMode = state.showProjectConfigPanel;
     const hasSelectedProjectForNewRun = Boolean((state.selectedProjectName || state.targetProjectName || "").trim());
     const hasSelectedWorkflowTypeForNewRun = Boolean(state.selectedWorkflowTypeId);
-    const hasPausedStepContext = !state.workflowRunning && Number(state.currentStep || 0) > 0;
     const isLlmHealthy = state.llmHealthy !== false;
-    const canSendMessage = !isBusy && (
-        (state.awaitingUserInput && (state.workflowRunning || state.canResume)) ||
-        (!state.awaitingUserInput && state.canResume && !state.workflowRunning) ||
-        (!state.awaitingUserInput && hasPausedStepContext)
-    ) && isLlmHealthy;
     const hasNextStep = state.totalSteps > 0 && state.currentStep > 0 && state.currentStep < state.totalSteps;
     const ticketRemaining = Number(
         state.ticketProgress?.remainingTickets ??
@@ -1096,24 +2823,58 @@ function updateBusyState(isBusy) {
     const hasTicketContinuation = isTicketIterationContext && ticketRemaining > 0;
     const canContinue = !isBusy && (hasNextStep || hasTicketContinuation) && (state.awaitingUserInput || state.canResume);
     const hasWorkflowState = state.workflowRunning || state.canResume || state.currentStep > 0 || state.totalSteps > 0;
-    const canSkip = !isBusy && hasWorkflowState;
-    const showContinueButton = hasWorkflowState && (hasNextStep || hasTicketContinuation);
-    const showSkipButton = hasWorkflowState;
     const hasWorkflowTypes = state.workflowTypes.length > 0;
     const hasWorkflowSelection = !hasWorkflowTypes || Boolean(state.selectedWorkflowTypeId);
-    const canStart = isNewProjectMode
-        ? (!isBusy && hasSelectedProjectForNewRun && hasSelectedWorkflowTypeForNewRun && isLlmHealthy)
-        : (!state.workflowRunning &&
-            !state.awaitingUserInput &&
-            !state.canResume &&
-            isLlmHealthy);
-    const hideStartButton = (state.workflowRunning || state.canResume || state.awaitingUserInput || hasTicketContinuation) && !isNewProjectMode;
+    const uiMode = getIndexUiMode(isBusy);
+    const isDisconnectedMode = uiMode === "websocketDisconnected";
+    const isScheduleModeState = uiMode === "scheduleWaiting" || uiMode === "scheduleRunning" || uiMode === "scheduleWaitingForInput";
+    const isProcessingMode = uiMode === "workflowProcessing" || uiMode === "workflowRunning" || uiMode === "scheduleRunning";
+    const isConversationMode = uiMode === "waitingForInput" || uiMode === "pausedResumable" || uiMode === "scheduleWaitingForInput";
+    const showStartButton = uiMode === "idle" ||
+        uiMode === "projectSelection" ||
+        uiMode === "newWorkflowSetup" ||
+        uiMode === "pausedResumable" ||
+        uiMode === "scheduleWaiting" ||
+        uiMode === "scheduleWaitingForInput" ||
+        uiMode === "llmSetupRequired";
+    const enableStartButton = showStartButton && !isBusy;
+    const showContinueButton = isConversationMode && hasWorkflowState && (hasNextStep || hasTicketContinuation) && canContinue;
+    const showSkipButton = isConversationMode && hasWorkflowState;
+    const canSkip = showSkipButton && !isBusy;
+    const showSendUpload = !isDisconnectedMode && uiMode !== "llmSetupRequired";
+    const disableSendUpload = uiMode === "workflowRunning" || uiMode === "scheduleRunning";
+    const canSendMessage = showSendUpload && !disableSendUpload;
     const shouldHideConfigByWorkflow = state.workflowRunning || state.canResume || hasTicketContinuation;
     const hideConfigPanel = shouldHideConfigByWorkflow && !state.showProjectConfigPanel;
     const projectSelectionDisabled = ((state.workflowRunning || state.canResume) && !isNewProjectMode) || state.busy;
     const projectCreateDisabled = (state.workflowRunning && !isNewProjectMode) || state.busy;
     const hasProjectOptions = state.projects.length > 0;
-    const canSwitchProject = hasProjectOptions && !isBusy;
+    const canSwitchProject = hasProjectOptions && !isBusy && (
+        uiMode === "idle" ||
+        uiMode === "projectSelection" ||
+        uiMode === "waitingForInput" ||
+        uiMode === "pausedResumable" ||
+        uiMode === "scheduleWaiting"
+    );
+    const showSwitchProject = hasProjectOptions && (
+        uiMode === "idle" ||
+        uiMode === "projectSelection" ||
+        uiMode === "waitingForInput" ||
+        uiMode === "pausedResumable" ||
+        uiMode === "scheduleWaiting"
+    );
+    const showScheduleButton = !isDisconnectedMode;
+    const canOpenSchedule = showScheduleButton && !isBusy;
+    const showNewOpenButton = !isDisconnectedMode;
+    const canOpenNew = showNewOpenButton && !isBusy;
+    const showResetButton = uiMode === "waitingForInput" ||
+        uiMode === "pausedResumable" ||
+        uiMode === "scheduleWaitingForInput";
+    const canReset = showResetButton && !isBusy;
+    const showStopButton = isProcessingMode;
+    const canStop = showStopButton && state.workflowRunning;
+    const showStopAllButton = isProcessingMode && (isScheduleModeState || Number(state.totalSteps || 0) > 1);
+    const canStopAll = showStopAllButton && state.workflowRunning;
 
     const faviconLink = document.getElementById("favicon-link");
     if (faviconLink) {
@@ -1127,25 +2888,29 @@ function updateBusyState(isBusy) {
     }
 
     ui.userInput.disabled = !canSendMessage;
-    ui.sendBtn.disabled = !canSendMessage;
-    ui.uploadBtn.disabled = !canSendMessage;
-    ui.continueBtn.disabled = !canContinue;
-    if (ui.skipBtn) {
-        ui.skipBtn.disabled = !canSkip;
-    }
-    ui.stopBtn.disabled = !state.workflowRunning;
-    ui.continueBtn.classList.toggle("hidden", !showContinueButton);
-    if (ui.skipBtn) {
-        ui.skipBtn.classList.toggle("hidden", !showSkipButton);
-    }
-    ui.resetBtn.classList.toggle("hidden", !hasWorkflowState || isNewProjectMode);
-    if (ui.newProjectBtn) {
-        ui.newProjectBtn.classList.toggle("hidden", !hasWorkflowState || !hideStartButton);
-    }
-    ui.switchProjectBtn.classList.toggle("hidden", !hasProjectOptions || isNewProjectMode);
-    ui.startBtn.classList.toggle("hidden", hideStartButton);
-    ui.startBtn.disabled = !canStart;
+    setButtonVisibility(ui.sendBtn, showSendUpload, canSendMessage);
+    setButtonVisibility(ui.uploadBtn, showSendUpload, canSendMessage);
+    setButtonVisibility(ui.continueBtn, showContinueButton, canContinue);
+    setButtonVisibility(ui.skipBtn, showSkipButton, canSkip);
+    setButtonVisibility(ui.stopBtn, showStopButton, canStop);
+    setButtonVisibility(ui.stopScheduleTaskBtn, showStopAllButton, canStopAll);
+    setButtonVisibility(ui.resetBtn, showResetButton, canReset);
+    setButtonVisibility(ui.newOpenBtn, showNewOpenButton, canOpenNew);
+    setButtonVisibility(ui.startBtn, showStartButton, enableStartButton);
     ui.startBtn.textContent = "Start Workflow";
+    if (uiMode === "llmSetupRequired") {
+        ui.startBtn.title = "LLM server setup is required before starting.";
+    } else if (isNewProjectMode || uiMode === "projectSelection") {
+        if (!hasSelectedProjectForNewRun || !hasSelectedWorkflowTypeForNewRun) {
+            ui.startBtn.title = "Select Project and Workflow Type to start.";
+        } else if (!isLlmHealthy) {
+            ui.startBtn.title = "LLM server setup is required before starting.";
+        } else {
+            ui.startBtn.title = "";
+        }
+    } else {
+        ui.startBtn.title = !isLlmHealthy ? "LLM server setup is required before starting." : "";
+    }
     ui.continueBtn.textContent = hasTicketContinuation ? "Next Ticket" : "Next Step";
     if (ui.skipBtn) {
         ui.skipBtn.textContent = hasTicketContinuation ? "Skip Ticket" : "Skip Step";
@@ -1174,19 +2939,30 @@ function updateBusyState(isBusy) {
     if (ui.createProjectBtn) {
         ui.createProjectBtn.disabled = projectCreateDisabled;
     }
-    ui.switchProjectBtn.disabled = !canSwitchProject;
+    if (ui.newProjectBtn) {
+        ui.newProjectBtn.disabled = isBusy;
+    }
+    if (ui.scheduleBtn) {
+        ui.scheduleBtn.disabled = !canOpenSchedule;
+    }
+    if (ui.switchProjectBtn) {
+        ui.switchProjectBtn.disabled = !canSwitchProject;
+    }
     ui.llmServerSelect.disabled = state.busy;
     ui.llmModelInput.disabled = state.busy;
     if (hideConfigPanel) {
         setRequiredFieldValidation(false, false);
     }
-    if (ui.newProjectBtn) {
-        ui.newProjectBtn.disabled = isBusy;
-        ui.newProjectBtn.textContent = state.showProjectConfigPanel ? "Close New Workflow" : "New Workflow";
+    if (ui.scheduleStopBtn) {
+        ui.scheduleStopBtn.disabled = !state.scheduleState?.isActive || isBusy;
+    }
+    if (ui.manageWorkflowTypesBtn) {
+        ui.manageWorkflowTypesBtn.disabled = isBusy;
     }
 
     syncWorkflowTypeHelp(hasWorkflowTypes, hasWorkflowSelection);
     syncProjectHelp();
+    syncWorkflowEditorControls();
 }
 
 function syncWorkflowTypeHelp(hasWorkflowTypes = state.workflowTypes.length > 0, hasWorkflowSelection = !hasWorkflowTypes || Boolean(state.selectedWorkflowTypeId)) {
@@ -1306,19 +3082,46 @@ function applyWorkflowTypes(payload) {
         state.selectedWorkflowTypeName = "";
     }
 
+    if (!state.workflowTypes.some((workflowType) => workflowType.id === state.workflowEditorSelectedWorkflowId)) {
+        state.workflowEditorSelectedWorkflowId = "";
+        state.workflowEditorSelectedWorkflowName = "";
+        state.workflowEditorSteps = [];
+        state.workflowEditorSelectedStepFileName = "";
+        state.workflowEditorMarkdownDraft = "";
+        state.workflowEditorMetadataDraft = "";
+        state.workflowEditorHasTicketIteration = false;
+        if (ui.workflowEditorMarkdown) {
+            ui.workflowEditorMarkdown.value = "";
+        }
+        if (ui.workflowEditorMetadata) {
+            ui.workflowEditorMetadata.value = "";
+        }
+        setWorkflowEditorDirty(false);
+    } else {
+        state.workflowEditorSelectedWorkflowName = state.workflowTypes.find((workflowType) => workflowType.id === state.workflowEditorSelectedWorkflowId)?.name
+            || state.workflowEditorSelectedWorkflowName;
+    }
+
     syncWorkflowTypePicker();
+    if (state.workflowEditorOpen) {
+        renderWorkflowEditorWorkflowList();
+        renderWorkflowEditorStepList();
+        syncWorkflowEditorControls();
+    }
     updateBusyState(state.busy);
 }
 
 function applyProjects(payload) {
     state.projects = Array.isArray(payload?.projects) ? payload.projects : [];
+    const scheduleModeActive = state.activeMode === "schedule" || Boolean(state.scheduleState?.isActive);
+    const shouldPreserveActiveScheduleProject = scheduleModeActive && (state.workflowRunning || state.currentStep > 0 || state.totalSteps > 0);
 
-    if (!state.projects.some((project) => project.name === state.selectedProjectName)) {
+    if (!shouldPreserveActiveScheduleProject && !state.projects.some((project) => project.name === state.selectedProjectName)) {
         state.selectedProjectName = "";
         state.selectedProjectDirectory = "";
     }
 
-    if (!state.projects.some((project) => project.name === state.targetProjectName)) {
+    if (!shouldPreserveActiveScheduleProject && !state.projects.some((project) => project.name === state.targetProjectName)) {
         state.targetProjectName = state.selectedProjectName || "";
     }
 
@@ -1360,6 +3163,48 @@ function closeSwitchProjectModal() {
 
     ui.switchProjectModal.classList.add("hidden");
     ui.switchProjectModal.classList.remove("flex");
+}
+
+function openStartNewModal() {
+    if (!ui.startNewModal) {
+        return;
+    }
+
+    ui.startNewModal.classList.remove("hidden");
+    ui.startNewModal.classList.add("flex");
+}
+
+function closeStartNewModal() {
+    if (!ui.startNewModal) {
+        return;
+    }
+
+    ui.startNewModal.classList.add("hidden");
+    ui.startNewModal.classList.remove("flex");
+}
+
+function openNewWorkflowModal() {
+    if (!ui.newWorkflowModal) {
+        return;
+    }
+
+    state.showProjectConfigPanel = true;
+    state.newWorkflowIntentActive = true;
+    ui.newWorkflowModal.classList.remove("hidden");
+    ui.newWorkflowModal.classList.add("flex");
+    updateBusyState(state.busy);
+}
+
+function closeNewWorkflowModal() {
+    if (!ui.newWorkflowModal) {
+        return;
+    }
+
+    state.showProjectConfigPanel = false;
+    state.newWorkflowIntentActive = false;
+    ui.newWorkflowModal.classList.add("hidden");
+    ui.newWorkflowModal.classList.remove("flex");
+    updateBusyState(state.busy);
 }
 
 function openSwitchProjectModal() {
@@ -1532,11 +3377,45 @@ function renderAgentMarkdown(content) {
         return null;
     }
 
-    const markdownHtml = markedLib.parse(text, { breaks: true, gfm: true });
-    return purify.sanitize(markdownHtml, {
+    const tokens = markedLib.lexer(text, { breaks: true, gfm: true });
+    const hadRawHtml = neutralizeRawHtmlTokens(tokens);
+    const markdownHtml = markedLib.parser(tokens, { breaks: true, gfm: true });
+    const sanitizedHtml = purify.sanitize(markdownHtml, {
         USE_PROFILES: { html: true },
         ALLOWED_ATTR: ["href", "target", "rel", "title", "class"]
     });
+    return {
+        html: sanitizedHtml,
+        hadRawHtml
+    };
+}
+
+function neutralizeRawHtmlTokens(tokens) {
+    let foundRawHtml = false;
+
+    if (!Array.isArray(tokens)) {
+        return foundRawHtml;
+    }
+
+    for (const token of tokens) {
+        if (!token || typeof token !== "object") {
+            continue;
+        }
+
+        if (token.type === "html") {
+            const rawHtml = token.raw || token.text || "";
+            token.type = "text";
+            token.text = escapeHtml(rawHtml);
+            token.raw = token.text;
+            foundRawHtml = true;
+        }
+
+        if (Array.isArray(token.tokens)) {
+            foundRawHtml = neutralizeRawHtmlTokens(token.tokens) || foundRawHtml;
+        }
+    }
+
+    return foundRawHtml;
 }
 
 function tryParseStructuredJson(content) {
@@ -1596,10 +3475,20 @@ function addChatMessage(role, content, timestamp, source = "web", sourceLabel = 
 
     const contentDiv = document.createElement("div");
     contentDiv.style.color = "#1f2937";
-    const markdownHtml = role === "agent" ? renderAgentMarkdown(content) : null;
-    if (markdownHtml) {
+    const markdownRender = role === "agent" ? renderAgentMarkdown(content) : null;
+    if (markdownRender?.html) {
         contentDiv.className = "markdown-content";
-        contentDiv.innerHTML = markdownHtml;
+        contentDiv.innerHTML = markdownRender.html;
+
+        if (markdownRender.hadRawHtml) {
+            const marker = document.createElement("div");
+            marker.style.marginTop = "0.5rem";
+            marker.style.fontSize = "0.75rem";
+            marker.style.fontWeight = "600";
+            marker.style.color = "#92400e";
+            marker.textContent = "⚠ HTML content was neutralized for safety.";
+            contentDiv.appendChild(marker);
+        }
     } else {
         contentDiv.style.whiteSpace = "pre-wrap";
         contentDiv.style.overflowWrap = "anywhere";
@@ -1820,6 +3709,29 @@ function logTerminal(message, color, timestamp) {
     ui.terminal.scrollTop = ui.terminal.scrollHeight;
 }
 
+function logTerminalLink(message, path, color, timestamp) {
+    const entry = document.createElement("div");
+    entry.className = "terminal-line log-entry";
+    entry.style.color = TERMINAL_COLORS[color] || TERMINAL_COLORS.gray;
+
+    const prefix = document.createElement("span");
+    prefix.textContent = `[${formatTime(timestamp)}] ${message} `;
+    entry.appendChild(prefix);
+
+    const link = document.createElement("a");
+    link.textContent = path;
+    link.href = `file://${path}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.style.color = "#93c5fd";
+    link.style.textDecoration = "underline";
+    link.style.wordBreak = "break-all";
+    entry.appendChild(link);
+
+    ui.terminal.appendChild(entry);
+    ui.terminal.scrollTop = ui.terminal.scrollHeight;
+}
+
 function updateMetrics(metrics) {
     if (!metrics) {
         return;
@@ -1908,6 +3820,9 @@ function handleMessage(data, options = {}) {
             syncWorkflowStateFromStatus(payload.status);
             updateStatus(payload.status, payload.color);
             updateBusyState(state.busy);
+            if ((payload.status || "").startsWith("Stopped") || payload.status === "Ready") {
+                void loadSchedules();
+            }
             break;
 
         case "workflow_start":
@@ -1952,6 +3867,7 @@ function handleMessage(data, options = {}) {
             ui.startBtn.disabled = false;
             ui.startBtn.textContent = "Start Workflow";
             updateBusyState(state.busy);
+            void loadSchedules();
             if (!replay) {
                 apiClient.getMetrics().then((metrics) => {
                     updateMetrics(metrics);
@@ -2065,6 +3981,14 @@ function handleMessage(data, options = {}) {
             logTerminal(`[LOG] ${payload.message}`, payload.color || "gray", timestamp);
             break;
 
+        case "log_link":
+            if (payload.path) {
+                logTerminalLink(payload.message || "[LOG] Open file", payload.path, payload.color || "cyan", timestamp);
+            } else {
+                logTerminal(`[LOG] ${payload.message || "Link unavailable."}`, payload.color || "gray", timestamp);
+            }
+            break;
+
         default:
             console.log("[WS] Unknown message type:", type);
     }
@@ -2072,22 +3996,26 @@ function handleMessage(data, options = {}) {
 
 async function hydrateFromServer() {
     try {
-        const [workflowState, workflowTypes, projects, llmOptions] = await Promise.all([
+        const [workflowState, workflowTypes, projects, llmOptions, schedules] = await Promise.all([
             apiClient.getWorkflowState(),
             apiClient.getWorkflowTypes(),
             apiClient.getProjects(),
-            apiClient.getLlmOptions()
+            apiClient.getLlmOptions(),
+            apiClient.getSchedules()
         ]);
         applyHydration(workflowState);
         applyWorkflowTypes(workflowTypes);
         applyProjects(projects);
         applyLlmOptions(llmOptions);
+        state.schedules = Array.isArray(schedules?.schedules) ? schedules.schedules : [];
+        normalizeScheduleState(schedules?.scheduleState || workflowState?.snapshot?.scheduleState || null);
+        renderScheduleList();
         await refreshLlmHealth(true);
     } catch (error) {
         console.error("[UI] Failed to hydrate workflow state:", error);
         renderEmptyState();
         updateStatus("Disconnected", "red");
-        await Promise.all([loadWorkflowTypes(), loadProjects(), loadLlmOptions()]);
+        await Promise.all([loadWorkflowTypes(), loadProjects(), loadLlmOptions(), loadSchedules()]);
     }
 }
 
@@ -2288,6 +4216,24 @@ function initClient() {
 }
 
 async function startWorkflow() {
+    if (state.activeMode === "schedule" || state.scheduleState?.isActive) {
+        try {
+            const schedules = await apiClient.getSchedules();
+            state.schedules = Array.isArray(schedules?.schedules) ? schedules.schedules : state.schedules;
+            normalizeScheduleState(schedules?.scheduleState || null);
+            renderScheduleList();
+        } catch {
+            // keep current client state if refresh fails
+        }
+
+        if (state.activeMode === "schedule" || state.scheduleState?.isActive) {
+            logTerminal("[SYSTEM] Manual start is disabled while Schedule Mode is active. Stop the schedule first.", "orange");
+            updateStatus("Schedule Mode active", "orange");
+            updateBusyState(state.busy);
+            return;
+        }
+    }
+
     if (state.llmHealthy === false) {
         openLlmSetupModal(state.llmHealthDetail || "LLM server is not reachable. Configure it in Settings.");
         logTerminal("[ERROR] Configure an LLM server in Settings before starting.", "red");
@@ -2295,13 +4241,16 @@ async function startWorkflow() {
         return;
     }
 
+    const startFromNewWorkflowPanel = Boolean(state.showProjectConfigPanel || state.newWorkflowIntentActive);
     const requestedWorkflowTypeId = state.selectedWorkflowTypeId || "";
     const requestedWorkflowTypeName = state.selectedWorkflowTypeName || "";
     let workflowTypeChanged = state.canResume &&
         Boolean(requestedWorkflowTypeId) &&
         Boolean(state.resumeWorkflowTypeId) &&
         requestedWorkflowTypeId !== state.resumeWorkflowTypeId;
-    let forceNewWorkflow = state.showProjectConfigPanel || workflowTypeChanged;
+    let forceNewWorkflow = startFromNewWorkflowPanel || workflowTypeChanged;
+    let canSafelyResume = state.canResume && (state.currentStep > 0 || state.awaitingUserInput);
+    let shouldResume = canSafelyResume && !forceNewWorkflow;
 
     if (state.awaitingUserInput && state.canResume && !forceNewWorkflow) {
         logTerminal("[SYSTEM] Workflow is already waiting for input. Send a message or click Next Step.", "orange");
@@ -2309,7 +4258,7 @@ async function startWorkflow() {
         return;
     }
 
-    if (!state.canResume || forceNewWorkflow) {
+    if (!shouldResume) {
         const intendedProject = (state.selectedProjectName || state.targetProjectName || "").trim();
         const missingProject = !intendedProject;
         const missingWorkflowType = !requestedWorkflowTypeId;
@@ -2342,13 +4291,17 @@ async function startWorkflow() {
                 Boolean(requestedWorkflowTypeId) &&
                 Boolean(state.resumeWorkflowTypeId) &&
                 requestedWorkflowTypeId !== state.resumeWorkflowTypeId;
-            forceNewWorkflow = state.showProjectConfigPanel || workflowTypeChanged;
+            // Keep explicit "New Workflow" intent even after project hydration resets panel flags.
+            forceNewWorkflow = startFromNewWorkflowPanel || workflowTypeChanged;
+            canSafelyResume = state.canResume && (state.currentStep > 0 || state.awaitingUserInput);
+            shouldResume = canSafelyResume && !forceNewWorkflow;
         }
     } else {
         setRequiredFieldValidation(false, false);
     }
 
     try {
+        logTerminal("[SYSTEM] Start Workflow requested", "cyan");
         if (workflowTypeChanged) {
             const resumeName = state.workflowTypes.find((item) => item.id === state.resumeWorkflowTypeId)?.name || state.resumeWorkflowTypeId;
             const startName = requestedWorkflowTypeName || requestedWorkflowTypeId;
@@ -2363,16 +4316,11 @@ async function startWorkflow() {
             }
         }
 
-        if (forceNewWorkflow && state.canResume) {
-            await apiClient.resetWorkflow();
-            handleMessage({ type: "workflow_reset", payload: {}, timestamp: new Date().toISOString() });
-        }
-
-        state.showProjectConfigPanel = false;
         ui.startBtn.textContent = "Starting...";
         ui.startBtn.disabled = true;
-        await apiClient.startWorkflow((state.canResume && !forceNewWorkflow) ? null : requestedWorkflowTypeId || null);
-        logTerminal((state.canResume && !forceNewWorkflow)
+        await apiClient.startWorkflow(shouldResume ? null : requestedWorkflowTypeId || null);
+        closeNewWorkflowModal();
+        logTerminal(shouldResume
             ? "[SYSTEM] Workflow resume requested"
             : `[SYSTEM] Starting ${requestedWorkflowTypeName || "workflow"}`, "cyan");
     } catch (error) {
@@ -2502,6 +4450,7 @@ ui.switchProjectBtn.addEventListener("click", async () => {
         return;
     }
 
+    closeStartNewModal();
     await loadSwitchProjectModal();
 });
 
@@ -2511,15 +4460,69 @@ if (ui.newProjectBtn) {
             return;
         }
 
-        state.showProjectConfigPanel = !state.showProjectConfigPanel;
-        updateBusyState(state.busy);
+        closeStartNewModal();
+        if (!state.targetProjectName && state.selectedProjectName) {
+            state.targetProjectName = state.selectedProjectName;
+        }
+        if (!state.selectedWorkflowTypeId && state.workflowTypes.length > 0) {
+            state.selectedWorkflowTypeId = state.workflowTypes[0].id || "";
+            state.selectedWorkflowTypeName = state.workflowTypes[0].name || "";
+            syncWorkflowTypePicker();
+        }
+        openNewWorkflowModal();
+        if (state.selectedWorkflowTypeId) {
+            ui.projectSelect?.focus();
+        } else {
+            ui.workflowTypeSelect?.focus();
+        }
+    });
+}
 
-        if (state.showProjectConfigPanel) {
-            if (state.selectedWorkflowTypeId) {
-                ui.projectSelect?.focus();
-            } else {
-                ui.workflowTypeSelect?.focus();
-            }
+if (ui.scheduleBtn) {
+    ui.scheduleBtn.addEventListener("click", () => {
+        if (state.busy) {
+            return;
+        }
+
+        closeStartNewModal();
+        openScheduleModal();
+    });
+}
+
+if (ui.newOpenBtn) {
+    ui.newOpenBtn.addEventListener("click", () => {
+        if (state.busy) {
+            return;
+        }
+
+        openStartNewModal();
+    });
+}
+
+if (ui.startNewCloseBtn) {
+    ui.startNewCloseBtn.addEventListener("click", () => {
+        closeStartNewModal();
+    });
+}
+
+if (ui.startNewModal) {
+    ui.startNewModal.addEventListener("click", (event) => {
+        if (event.target === ui.startNewModal) {
+            closeStartNewModal();
+        }
+    });
+}
+
+if (ui.newWorkflowCloseBtn) {
+    ui.newWorkflowCloseBtn.addEventListener("click", () => {
+        closeNewWorkflowModal();
+    });
+}
+
+if (ui.newWorkflowModal) {
+    ui.newWorkflowModal.addEventListener("click", (event) => {
+        if (event.target === ui.newWorkflowModal) {
+            closeNewWorkflowModal();
         }
     });
 }
@@ -2531,6 +4534,185 @@ if (ui.createProjectOpenBtn) {
         }
 
         openCreateProjectModal();
+    });
+}
+
+if (ui.manageWorkflowTypesBtn) {
+    ui.manageWorkflowTypesBtn.addEventListener("click", async () => {
+        if (state.busy) {
+            return;
+        }
+
+        await openWorkflowEditorModal();
+    });
+}
+
+if (ui.scheduleCloseBtn) {
+    ui.scheduleCloseBtn.addEventListener("click", () => {
+        closeScheduleModal();
+    });
+}
+
+if (ui.scheduleModal) {
+    ui.scheduleModal.addEventListener("click", (event) => {
+        if (event.target === ui.scheduleModal) {
+            closeScheduleModal();
+        }
+    });
+}
+
+if (ui.scheduleRefreshBtn) {
+    ui.scheduleRefreshBtn.addEventListener("click", async () => {
+        await loadSchedules();
+    });
+}
+
+if (ui.scheduleStopBtn) {
+    ui.scheduleStopBtn.addEventListener("click", async () => {
+        await stopSchedule();
+    });
+}
+
+if (ui.scheduleOpenEditorBtn) {
+    ui.scheduleOpenEditorBtn.addEventListener("click", () => {
+        openScheduleEditorModal();
+    });
+}
+
+if (ui.scheduleList) {
+    ui.scheduleList.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+
+        const recreateButton = target.closest(".schedule-recreate-btn");
+        if (recreateButton instanceof HTMLElement) {
+            const scheduleName = (recreateButton.dataset.scheduleName || "").trim();
+            openScheduleEditorForRecreate(scheduleName);
+            return;
+        }
+
+        const button = target.closest(".schedule-start-btn");
+        if (button instanceof HTMLElement) {
+            const scheduleName = (button.dataset.scheduleName || "").trim();
+            await startSchedule(scheduleName);
+            return;
+        }
+
+        const editButton = target.closest(".schedule-edit-btn");
+        if (editButton instanceof HTMLElement) {
+            const scheduleName = (editButton.dataset.scheduleName || "").trim();
+            await openScheduleEditorForEdit(scheduleName);
+        }
+    });
+}
+
+if (ui.scheduleEditorCloseBtn) {
+    ui.scheduleEditorCloseBtn.addEventListener("click", () => {
+        closeScheduleEditorModal();
+    });
+}
+
+if (ui.scheduleEditorCancelBtn) {
+    ui.scheduleEditorCancelBtn.addEventListener("click", () => {
+        closeScheduleEditorModal();
+    });
+}
+
+if (ui.scheduleEditorModal) {
+    ui.scheduleEditorModal.addEventListener("click", (event) => {
+        if (event.target === ui.scheduleEditorModal) {
+            closeScheduleEditorModal();
+        }
+    });
+}
+
+if (ui.scheduleEditorSaveBtn) {
+    ui.scheduleEditorSaveBtn.addEventListener("click", async () => {
+        await saveScheduleFromEditor();
+    });
+}
+
+if (ui.scheduleEditorExistingSelect) {
+    ui.scheduleEditorExistingSelect.addEventListener("change", async () => {
+        await loadScheduleIntoEditor(ui.scheduleEditorExistingSelect.value || "");
+    });
+}
+
+if (ui.scheduleEditorWorkflowSelect) {
+    ui.scheduleEditorWorkflowSelect.addEventListener("change", async () => {
+        await loadScheduleEditorWorkflowSteps(ui.scheduleEditorWorkflowSelect.value || "", []);
+    });
+}
+
+if (ui.scheduleEditorTriggerType) {
+    ui.scheduleEditorTriggerType.addEventListener("change", () => {
+        syncScheduleEditorVisibility();
+    });
+}
+
+if (ui.scheduleEditorScheduleType) {
+    ui.scheduleEditorScheduleType.addEventListener("change", () => {
+        syncScheduleEditorVisibility();
+    });
+}
+
+if (ui.scheduleEditorRegularServer) {
+    ui.scheduleEditorRegularServer.addEventListener("change", () => {
+        updateScheduleEditorRegularModelOptions();
+    });
+}
+
+if (ui.scheduleEditorBenchmarkList) {
+    ui.scheduleEditorBenchmarkList.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) {
+            return;
+        }
+
+        if (!target.classList.contains("schedule-benchmark-checkbox")) {
+            return;
+        }
+
+        const key = (target.dataset.key || "").trim();
+        if (!key) {
+            return;
+        }
+
+        const next = new Set(state.scheduleEditorBenchmarkSelectionKeys);
+        if (target.checked) {
+            next.add(key);
+        } else {
+            next.delete(key);
+        }
+        state.scheduleEditorBenchmarkSelectionKeys = Array.from(next);
+    });
+}
+
+if (ui.scheduleEditorStepsList) {
+    ui.scheduleEditorStepsList.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) {
+            return;
+        }
+
+        if (!target.classList.contains("schedule-step-checkbox")) {
+            return;
+        }
+
+        const stepFileName = (target.dataset.stepFileName || "").trim();
+        if (!stepFileName) {
+            return;
+        }
+
+        const next = new Set(state.scheduleEditorSelectedStepFileNames);
+        if (target.checked) {
+            next.add(stepFileName);
+        } else {
+            next.delete(stepFileName);
+        }
+        state.scheduleEditorSelectedStepFileNames = Array.from(next);
     });
 }
 
@@ -2575,6 +4757,161 @@ if (ui.createProjectModal) {
         if (event.target === ui.createProjectModal) {
             closeCreateProjectModal();
         }
+    });
+}
+
+if (ui.workflowEditorCloseBtn) {
+    ui.workflowEditorCloseBtn.addEventListener("click", () => {
+        closeWorkflowEditorModal();
+    });
+}
+
+if (ui.workflowEditorModal) {
+    ui.workflowEditorModal.addEventListener("click", (event) => {
+        if (event.target === ui.workflowEditorModal) {
+            closeWorkflowEditorModal();
+        }
+    });
+}
+
+if (ui.workflowEditorOpenCreateBtn) {
+    ui.workflowEditorOpenCreateBtn.addEventListener("click", () => {
+        openWorkflowEditorCreateModal();
+    });
+}
+
+if (ui.workflowEditorAddStepBtn) {
+    ui.workflowEditorAddStepBtn.addEventListener("click", async () => {
+        await addStepFromWorkflowEditor();
+    });
+}
+
+if (ui.workflowEditorCreateIterationBtn) {
+    ui.workflowEditorCreateIterationBtn.addEventListener("click", async () => {
+        await createTicketIterationForCurrentStep();
+    });
+}
+
+if (ui.workflowEditorSaveBtn) {
+    ui.workflowEditorSaveBtn.addEventListener("click", async () => {
+        await saveWorkflowEditorStep();
+    });
+}
+
+if (ui.workflowEditorCreateSubmitBtn) {
+    ui.workflowEditorCreateSubmitBtn.addEventListener("click", async () => {
+        await createWorkflowTypeFromEditor();
+    });
+}
+
+if (ui.workflowEditorCreateCloseBtn) {
+    ui.workflowEditorCreateCloseBtn.addEventListener("click", () => {
+        closeWorkflowEditorCreateModal();
+    });
+}
+
+if (ui.workflowEditorCreateCancelBtn) {
+    ui.workflowEditorCreateCancelBtn.addEventListener("click", () => {
+        closeWorkflowEditorCreateModal();
+    });
+}
+
+if (ui.workflowEditorCreateModal) {
+    ui.workflowEditorCreateModal.addEventListener("click", (event) => {
+        if (event.target === ui.workflowEditorCreateModal) {
+            closeWorkflowEditorCreateModal();
+        }
+    });
+}
+
+if (ui.workflowEditorCreateNameInput) {
+    ui.workflowEditorCreateNameInput.addEventListener("keypress", async (event) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            await createWorkflowTypeFromEditor();
+        }
+    });
+}
+
+if (ui.workflowEditorWorkflowsList) {
+    ui.workflowEditorWorkflowsList.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+
+        const button = target.closest("[data-workflow-editor-action]");
+        if (!(button instanceof HTMLElement)) {
+            return;
+        }
+
+        const action = (button.dataset.workflowEditorAction || "").trim();
+        const workflowId = (button.dataset.workflowId || "").trim();
+        if (!action || !workflowId) {
+            return;
+        }
+
+        if (action === "select-workflow") {
+            await selectWorkflowEditorWorkflow(workflowId, { revealDeleteButton: true });
+            return;
+        }
+
+        if (action === "delete-workflow") {
+            if (workflowId !== state.workflowEditorSelectedWorkflowId) {
+                await selectWorkflowEditorWorkflow(workflowId, { revealDeleteButton: true });
+            }
+            await deleteWorkflowFromEditor();
+        }
+    });
+}
+
+if (ui.workflowEditorStepsList) {
+    ui.workflowEditorStepsList.addEventListener("click", async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+            return;
+        }
+
+        const button = target.closest("[data-workflow-editor-action]");
+        if (!(button instanceof HTMLElement)) {
+            return;
+        }
+
+        const action = (button.dataset.workflowEditorAction || "").trim();
+        const stepFileName = (button.dataset.stepFileName || "").trim();
+        if (!action || !stepFileName) {
+            return;
+        }
+
+        if (action === "select-step") {
+            await selectWorkflowEditorStep(stepFileName, { revealDeleteButton: true });
+            return;
+        }
+
+        if (action === "delete-step") {
+            if (stepFileName !== state.workflowEditorSelectedStepFileName) {
+                await selectWorkflowEditorStep(stepFileName, { revealDeleteButton: true });
+            }
+            await deleteStepFromEditor();
+        }
+    });
+}
+
+if (ui.workflowEditorMarkdown) {
+    ui.workflowEditorMarkdown.addEventListener("input", () => {
+        if (!state.workflowEditorSelectedStepFileName) {
+            return;
+        }
+        setWorkflowEditorDirty(true);
+    });
+}
+
+if (ui.workflowEditorMetadata) {
+    ui.workflowEditorMetadata.addEventListener("input", () => {
+        if (!state.workflowEditorSelectedStepFileName) {
+            return;
+        }
+        setWorkflowEditorDirty(true);
     });
 }
 
@@ -2874,6 +5211,32 @@ ui.stopBtn.addEventListener("click", async () => {
     }
 });
 
+if (ui.stopScheduleTaskBtn) {
+    ui.stopScheduleTaskBtn.addEventListener("click", async () => {
+        try {
+            const isScheduleMode = state.activeMode === "schedule" || Boolean(state.scheduleState?.isActive);
+            if (isScheduleMode) {
+                try {
+                    const stopTaskResult = await apiClient.stopScheduleTask();
+                    logTerminal(`[SCHEDULE] ${stopTaskResult.message || "Stop Schedule Task requested."}`, "orange");
+                } catch (stopTaskError) {
+                    logTerminal(`[SCHEDULE] Stop current task note: ${stopTaskError.message}`, "orange");
+                }
+
+                const stopScheduleResult = await apiClient.stopSchedule();
+                logTerminal(`[SCHEDULE] ${stopScheduleResult.message || "Stopped schedule."}`, "orange");
+                await loadSchedules();
+                return;
+            }
+
+            await apiClient.resetWorkflow();
+            logTerminal("[SYSTEM] Stop All requested. Workflow fully stopped.", "orange");
+        } catch (error) {
+            logTerminal(`[ERROR] Failed to stop all: ${error.message}`, "red");
+        }
+    });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     renderEmptyState();
     initClient();
@@ -2896,5 +5259,29 @@ if (ui.llmSetupModal) {
 if (ui.llmSetupRetryBtn) {
     ui.llmSetupRetryBtn.addEventListener("click", async () => {
         await refreshLlmHealth(true);
+    });
+}
+
+if (ui.wsReconnectRetryBtn) {
+    ui.wsReconnectRetryBtn.addEventListener("click", () => {
+        wsClient.connect((connected, error) => {
+            if (connected) {
+                logTerminal("[SYSTEM] WebSocket reconnected", "green");
+                updateStatus("Connected", "green");
+                closeWebSocketReconnectModal();
+            } else {
+                const message = error || "WebSocket reconnect failed.";
+                if (ui.wsReconnectDetails) {
+                    ui.wsReconnectDetails.textContent = message;
+                }
+                logTerminal(`[ERROR] ${message}`, "red");
+            }
+        });
+    });
+}
+
+if (ui.wsReconnectCloseBtn) {
+    ui.wsReconnectCloseBtn.addEventListener("click", () => {
+        closeWebSocketReconnectModal();
     });
 }

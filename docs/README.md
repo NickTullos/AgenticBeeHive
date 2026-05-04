@@ -8,11 +8,11 @@ Download ready-to-run binaries for your platform:
 
 | Platform | Download |
 |----------|----------|
-| **Windows** (x64) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist) |
-| **macOS** (Intel / Apple Silicon) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist) |
-| **Linux** (x64) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist) |
+| **Windows** (x64 / arm64) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist/windows) |
+| **macOS** (Intel / Apple Silicon) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist/macos) |
+| **Linux** (x64 / arm64) | [Download](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist/linux) |
 
-> **Note:** All precompiled builds are hosted on the [AgenticBeeHive Releases](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist) page.
+> **Note:** Open your OS folder and select the architecture zip (`x64` or `arm64`). All builds are under [build/dist](https://github.com/NickTullos/AgenticBeeHive/tree/main/build/dist). During release builds, bump only `solution/src/version.json` `version` (canonical source); scripts auto-sync `assets` names and project MSBuild version metadata. `appsettings.json` `CurrentVersion` is legacy fallback only.
 
 ## 📚 Documentation Index
 All documentation is located in the `docs/` directory:

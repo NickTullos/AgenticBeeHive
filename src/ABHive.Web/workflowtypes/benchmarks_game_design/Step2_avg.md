@@ -11,6 +11,7 @@ GAME CONCEPT:
 The player pilots a small courier ship through an asteroid field, collects glowing cargo pods, and delivers them to a docking zone before time runs out.
 
 REQUIREMENTS:
+- Do not read or write outside of {{PROJECT_ROOT}} 
 - Output only the HTML file content.
 - Use only HTML, CSS, Canvas 2D, and vanilla JavaScript.
 - Include keyboard controls and on-screen touch controls.
@@ -27,7 +28,7 @@ RULES:
 - Do not ask questions.
 - Do not use external libraries, CDNs, images, build tools, or network calls.
 - Output must start with <!DOCTYPE html> and end with </html>.
-- Save the results to a file called step2-benchmark.html
+- Save the results to a file called step2-benchmark.html in folder {{SOLUTION_DIR}}
 
 DONE CRITERIA:
 - The HTML can be saved as a single .html file and opened directly in a browser.

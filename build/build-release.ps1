@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $solutionDir = Split-Path -Parent $scriptDir
 $projectPath = Join-Path $solutionDir 'src/ABHive.Web/ABHive.Web.csproj'
-$versionFile = $null
+$versionFile = Join-Path $solutionDir 'src/version.json'
 $outDir = Join-Path $scriptDir 'out'
 $distDir = Join-Path $scriptDir 'dist'
 $packDir = Join-Path $distDir '.pack'
@@ -19,24 +19,75 @@ $rids = @(
     'osx-arm64'
 )
 
-foreach ($candidate in @(
-    (Join-Path $solutionDir 'src/version.json'),
-    (Join-Path $solutionDir 'version.json')
-)) {
-    if (Test-Path -LiteralPath $candidate) {
-        $versionFile = $candidate
-        break
-    }
-}
-
-if ([string]::IsNullOrWhiteSpace([string]$versionFile)) {
-    throw "Missing version file. Checked '$solutionDir/src/version.json' and '$solutionDir/version.json'."
+if (-not (Test-Path -LiteralPath $versionFile)) {
+    throw "Missing version file: $versionFile"
 }
 
 $versionManifest = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-Json
 $version = [string]$versionManifest.version
 if ([string]::IsNullOrWhiteSpace($version)) {
     throw "Missing version value in $versionFile"
+}
+
+$semverPattern = '^(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)(?:-(?<prerelease>[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$'
+$versionMatch = [regex]::Match($version, $semverPattern)
+if (-not $versionMatch.Success) {
+    throw "Version '$version' in $versionFile is not valid SemVer."
+}
+
+$assemblyFileVersion = "$($versionMatch.Groups['major'].Value).$($versionMatch.Groups['minor'].Value).$($versionMatch.Groups['patch'].Value).0"
+$informationalVersion = $version
+
+Write-Host "[version] SemVer=$version"
+Write-Host "[version] AssemblyVersion/FileVersion=$assemblyFileVersion"
+
+if ($null -eq $versionManifest.assets) {
+    throw "Missing required 'assets' object in $versionFile"
+}
+
+$assetChanges = @()
+foreach ($rid in $rids) {
+    $parts = $rid.Split('-', 2)
+    $ridOs = $parts[0]
+    $arch = $parts[1]
+    $osLabel = switch ($ridOs) {
+        'win' { 'windows' }
+        'linux' { 'linux' }
+        'osx' { 'macos' }
+        default { throw "Unsupported RID OS segment '$ridOs' for RID '$rid'." }
+    }
+
+    $expectedAsset = "agenticbeehive-v$version-$osLabel-$arch.zip"
+    $assetProp = $versionManifest.assets.PSObject.Properties[$rid]
+    if ($null -eq $assetProp) {
+        throw "Missing required assets entry '$rid' in $versionFile"
+    }
+
+    $currentAsset = [string]$assetProp.Value
+    if ($currentAsset -ne $expectedAsset) {
+        $assetChanges += [PSCustomObject]@{
+            Rid = $rid
+            Old = $currentAsset
+            New = $expectedAsset
+        }
+        $assetProp.Value = $expectedAsset
+    }
+}
+
+if ($assetChanges.Count -gt 0) {
+    Write-Host "[version-sync] Synchronizing asset names in $versionFile for version $version..."
+    $syncedJson = $versionManifest | ConvertTo-Json -Depth 20
+    Set-Content -LiteralPath $versionFile -Value $syncedJson -Encoding utf8
+    foreach ($change in $assetChanges) {
+        Write-Host "[version-sync] $($change.Rid): '$($change.Old)' -> '$($change.New)'"
+    }
+
+    $versionManifest = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-Json
+    if ($null -eq $versionManifest.assets) {
+        throw "Version sync failed. Missing 'assets' object after writing $versionFile"
+    }
+} else {
+    Write-Host "[version-sync] Assets already aligned for version $version."
 }
 
 if (Test-Path -LiteralPath $outDir) { Remove-Item -LiteralPath $outDir -Recurse -Force }
@@ -47,12 +98,19 @@ New-Item -ItemType Directory -Path $packDir | Out-Null
 
 foreach ($rid in $rids) {
     $parts = $rid.Split('-', 2)
-    $os = $parts[0]
+    $ridOs = $parts[0]
     $arch = $parts[1]
+    $osLabel = switch ($ridOs) {
+        'win' { 'windows' }
+        'linux' { 'linux' }
+        'osx' { 'macos' }
+        default { throw "Unsupported RID OS segment '$ridOs' for RID '$rid'." }
+    }
     $publishDir = Join-Path $outDir $rid
-    $zipName = "agenticbeehive-v$version-build-$os-$arch.zip"
+    $distOsDir = Join-Path $distDir $osLabel
+    $zipName = "agenticbeehive-v$version-$osLabel-$arch.zip"
     $zipBase = [System.IO.Path]::GetFileNameWithoutExtension($zipName)
-    $zipPath = Join-Path $distDir $zipName
+    $zipPath = Join-Path $distOsDir $zipName
     $packageRoot = Join-Path $packDir $zipBase
 
     Write-Host "Publishing $rid..."
@@ -60,6 +118,10 @@ foreach ($rid in $rids) {
         -c Release `
         -r $rid `
         --self-contained true `
+        -p:Version=$version `
+        -p:InformationalVersion=$informationalVersion `
+        -p:AssemblyVersion=$assemblyFileVersion `
+        -p:FileVersion=$assemblyFileVersion `
         -p:PublishSingleFile=true `
         -p:PublishTrimmed=false `
         -o $publishDir
@@ -71,7 +133,7 @@ foreach ($rid in $rids) {
         } catch { }
     }
 
-    if ($os -ne 'win') {
+    if ($ridOs -ne 'win') {
         $startShPath = Join-Path $publishDir 'start-abhive.sh'
         $startSh = @'
 #!/usr/bin/env bash
@@ -90,7 +152,7 @@ exec ./abHive.Web
         } catch { }
     }
 
-    if ($os -eq 'osx') {
+    if ($ridOs -eq 'osx') {
         $startCommandPath = Join-Path $publishDir 'start-abhive.command'
         $startCommand = @'
 #!/usr/bin/env bash
@@ -118,8 +180,19 @@ exit ${EXIT_CODE}
     if (Test-Path -LiteralPath $logsPath) {
         Remove-Item -LiteralPath $logsPath -Recurse -Force
     }
+    $schedulePath = Join-Path $publishDir 'schedule'
+    if (Test-Path -LiteralPath $schedulePath) {
+        Remove-Item -LiteralPath $schedulePath -Recurse -Force
+    }
+    $schedulePathUpper = Join-Path $publishDir 'Schedule'
+    if (Test-Path -LiteralPath $schedulePathUpper) {
+        Remove-Item -LiteralPath $schedulePathUpper -Recurse -Force
+    }
+    Get-ChildItem -LiteralPath $publishDir -Filter '*.pdb' -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath $publishDir -Recurse -File -Filter '.DS_Store' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
     Write-Host "Packaging $zipName..."
+    New-Item -ItemType Directory -Path $distOsDir -Force | Out-Null
     if (Test-Path -LiteralPath $packageRoot) { Remove-Item -LiteralPath $packageRoot -Recurse -Force }
     New-Item -ItemType Directory -Path $packageRoot | Out-Null
     Copy-Item -Path (Join-Path $publishDir '*') -Destination $packageRoot -Recurse -Force
@@ -133,16 +206,23 @@ $header = @(
     "version=$version"
     "generatedAtUtc=$([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))"
     ''
-    'sha256 filename'
+    'sha256 path'
 )
 Set-Content -LiteralPath $manifestPath -Value $header
 
 foreach ($rid in $rids) {
     $parts = $rid.Split('-', 2)
-    $os = $parts[0]
+    $ridOs = $parts[0]
     $arch = $parts[1]
-    $zipName = "agenticbeehive-v$version-build-$os-$arch.zip"
-    $zipPath = Join-Path $distDir $zipName
+    $osLabel = switch ($ridOs) {
+        'win' { 'windows' }
+        'linux' { 'linux' }
+        'osx' { 'macos' }
+        default { throw "Unsupported RID OS segment '$ridOs' for RID '$rid'." }
+    }
+    $zipName = "agenticbeehive-v$version-$osLabel-$arch.zip"
+    $zipPath = Join-Path (Join-Path $distDir $osLabel) $zipName
+    $relativePath = "$osLabel/$zipName"
 
     if (-not (Test-Path -LiteralPath $zipPath)) {
         throw "Missing expected artifact: $zipPath"
@@ -154,7 +234,7 @@ foreach ($rid in $rids) {
     }
 
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath).Hash.ToLowerInvariant()
-    Add-Content -LiteralPath $manifestPath -Value "$hash $zipName"
+    Add-Content -LiteralPath $manifestPath -Value "$hash $relativePath"
 }
 
 Write-Host "Release build complete."

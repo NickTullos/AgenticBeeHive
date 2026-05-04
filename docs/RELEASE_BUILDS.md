@@ -15,7 +15,7 @@ This guide explains how to produce standalone release artifacts and how the app 
 - `solution/build/build-release.sh` — macOS/Linux release build script
 - `solution/build/build-release.ps1` — PowerShell release build script
 - `solution/build/out/` — publish output per RID
-- `solution/build/dist/` — zipped release artifacts + `release-manifest.txt`
+- `solution/build/dist/` — OS-specific artifact folders + `release-manifest.txt`
 
 ## Prerequisites
 
@@ -31,9 +31,17 @@ Update these fields before building:
 - `updateManifestUrl` — raw GitHub URL to your remote `version.json`
 - `releaseNotesUrl` — your GitHub Releases page/tag URL
 - `publishedAtUtc` — UTC publish timestamp
-- `assets` — expected zip names for each RID
+- `assets` — optional; auto-synced by build scripts to match `version`
 
-The scripts validate artifact names against `assets`.
+Build scripts now auto-sync `assets` to the current `version` using the active naming format before publishing.
+If entries are out of sync, the script updates `solution/src/version.json`, logs each change, and then continues.
+
+`solution/src/version.json` is the canonical version source for:
+- Release artifact naming
+- API `appVersion` used by the UI header
+- Update-check current version comparisons
+
+`CurrentVersion` in `appsettings.json` is now treated as a legacy fallback only if `version.json` is missing or invalid at runtime.
 
 ## Run Release Builds
 
@@ -57,17 +65,40 @@ cd solution
 
 Each artifact is named:
 
-`agenticbeehive-v<version>-build-<os>-<arch>.zip`
+`agenticbeehive-v<version>-<os>-<arch>.zip`
 
 Examples:
 
-- `agenticbeehive-v0.1.0-build-win-x64.zip`
-- `agenticbeehive-v0.1.0-build-linux-arm64.zip`
-- `agenticbeehive-v0.1.0-build-osx-arm64.zip`
+- `agenticbeehive-v0.1.0-windows-x64.zip`
+- `agenticbeehive-v0.1.0-linux-arm64.zip`
+- `agenticbeehive-v0.1.0-macos-arm64.zip`
+
+OS labels are user-facing:
+
+- `windows`
+- `linux`
+- `macos`
 
 Each zip extracts into a same-name top-level folder. Example:
 
-- `agenticbeehive-v0.1.0-build-linux-arm64.zip` ⟶ `agenticbeehive-v0.1.0-build-linux-arm64/`
+- `agenticbeehive-v0.1.0-linux-arm64.zip` ⟶ `agenticbeehive-v0.1.0-linux-arm64/`
+
+## Output Layout
+
+Artifacts are grouped by OS:
+
+- `solution/build/dist/windows/`
+- `solution/build/dist/linux/`
+- `solution/build/dist/macos/`
+
+The root manifest remains at:
+
+- `solution/build/dist/release-manifest.txt`
+
+Manifest entries use relative paths, for example:
+
+- `windows/agenticbeehive-v0.1.0-windows-x64.zip`
+- `macos/agenticbeehive-v0.1.0-macos-arm64.zip`
 
 ## Target Matrix
 
@@ -86,6 +117,10 @@ All targets are published with:
 - `--self-contained true`
 - `-p:PublishSingleFile=true`
 - `-p:PublishTrimmed=false`
+- `-p:Version=<full semver>` (for example `1.2.3-beta.1`)
+- `-p:InformationalVersion=<full semver>`
+- `-p:AssemblyVersion=<major>.<minor>.<patch>.0`
+- `-p:FileVersion=<major>.<minor>.<patch>.0`
 - `chmod +x abHive.Web` applied before zipping (when present)
 
 The build packages include the full `workflowtypes/` tree from the project.
@@ -95,9 +130,9 @@ Runtime `logs/` files are excluded from publish artifacts and release zips.
 
 After script completion:
 
-1. Check `solution/build/dist/` for 6 zip files.
+1. Check `solution/build/dist/windows/`, `solution/build/dist/linux/`, and `solution/build/dist/macos/` for the 6 zip files.
 2. Open `solution/build/dist/release-manifest.txt`.
-3. Confirm each zip has a SHA-256 checksum entry.
+3. Confirm each zip has a SHA-256 checksum entry with an OS-relative path.
 
 ## Running the Published App
 
@@ -123,7 +158,8 @@ Convenience launchers are also included:
 
 ## GitHub Release Workflow (Recommended)
 
-1. Bump `solution/src/version.json` (`version`, `publishedAtUtc`, URLs, assets).
+1. Bump `solution/src/version.json` (`version`, `publishedAtUtc`, URLs).
+   - `assets` are auto-synced during build.
 2. Run release script (`.sh` or `.ps1`).
-3. Upload zips from `solution/build/dist/` to a GitHub release.
+3. Upload zips from `solution/build/dist/windows/`, `solution/build/dist/linux/`, and `solution/build/dist/macos/` to a GitHub release.
 4. Commit/publish the updated remote `version.json` at your raw GitHub URL.

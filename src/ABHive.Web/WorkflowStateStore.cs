@@ -333,23 +333,18 @@ public class WorkflowStateStore
     private PersistedWorkflowState LoadStateForStartup(string fallbackProjectName, string fallbackProjectDirectory)
     {
         var pointer = ReadCurrentProjectPointer();
-        var projectName = (pointer?.ProjectName ?? string.Empty).Trim();
-        var projectDirectory = (pointer?.ProjectDirectory ?? string.Empty).Trim();
+        var pointerProjectName = (pointer?.ProjectName ?? string.Empty).Trim();
+        var pointerProjectDirectory = (pointer?.ProjectDirectory ?? string.Empty).Trim();
+        var hasValidPointer = TryResolveStartupProject(pointerProjectName, pointerProjectDirectory, out var projectName, out var projectDirectory);
 
-        if (string.IsNullOrWhiteSpace(projectName))
+        if (!hasValidPointer)
         {
-            projectName = (fallbackProjectName ?? string.Empty).Trim();
-            projectDirectory = (fallbackProjectDirectory ?? string.Empty).Trim();
-        }
-
-        if (string.IsNullOrWhiteSpace(projectName) || !ProjectNamePattern.IsMatch(projectName))
-        {
-            return CreateDefaultState();
-        }
-
-        if (string.IsNullOrWhiteSpace(projectDirectory))
-        {
-            projectDirectory = Path.Combine(_projectsRoot, projectName);
+            var fallbackName = (fallbackProjectName ?? string.Empty).Trim();
+            var fallbackDirectory = (fallbackProjectDirectory ?? string.Empty).Trim();
+            if (!TryResolveStartupProject(fallbackName, fallbackDirectory, out projectName, out projectDirectory))
+            {
+                return CreateDefaultState();
+            }
         }
 
         var state = LoadProjectStateLocked(projectName, projectDirectory);
@@ -363,6 +358,43 @@ public class WorkflowStateStore
         }
 
         return state;
+    }
+
+    private bool TryResolveStartupProject(
+        string projectName,
+        string projectDirectory,
+        out string normalizedProjectName,
+        out string normalizedProjectDirectory)
+    {
+        normalizedProjectName = string.Empty;
+        normalizedProjectDirectory = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(projectName) || !ProjectNamePattern.IsMatch(projectName))
+        {
+            return false;
+        }
+
+        var expectedDirectory = Path.GetFullPath(Path.Combine(_projectsRoot, projectName));
+        if (string.IsNullOrWhiteSpace(projectDirectory))
+        {
+            projectDirectory = expectedDirectory;
+        }
+
+        var fullDirectory = Path.GetFullPath(projectDirectory);
+        var pathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (!string.Equals(fullDirectory, expectedDirectory, pathComparison))
+        {
+            return false;
+        }
+
+        if (!Directory.Exists(fullDirectory))
+        {
+            return false;
+        }
+
+        normalizedProjectName = projectName;
+        normalizedProjectDirectory = fullDirectory;
+        return true;
     }
 
     private PersistedWorkflowState LoadProjectStateLocked(string projectName, string projectDirectory)

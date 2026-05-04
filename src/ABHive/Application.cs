@@ -39,6 +39,7 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
     public Func<string, string, Task>? SendLlmResponseWithReasoningAsync { get; set; }
     public Func<string, string, Task>? SendToolRequestAsync { get; set; }
     public Func<ToolResult, Task>? SendToolExecutionAsync { get; set; }
+    public Func<int, StepConversationTurnResult, Task>? SendConversationTurnStatsAsync { get; set; }
 
     public WorkflowOrchestrator(
         AppSettings settings,
@@ -139,6 +140,7 @@ public class WorkflowOrchestrator : IWorkflowOrchestrator
                         }
                         
                         await PublishFinalLlmResponseAsync(turnResult.FinalResponse);
+                        await PublishConversationTurnStatsAsync(i + 1, turnResult);
                     }
 
                     if (isTicketIterationStep)
@@ -446,11 +448,29 @@ private async Task<List<Step>> LoadStepsAsync(CancellationToken ct = default)
                 onToolRequestedAsync: PublishToolRequestAsync,
                 onToolResultAsync: PublishToolExecutionResultAsync,
                 onPseudoToolCallWarningAsync: PublishPseudoToolCallWarningAsync);
+            var existingPromptTokens = result.LLMResponse?.Usage?.PromptTokens ?? 0;
+            var existingCompletionTokens = result.LLMResponse?.Usage?.CompletionTokens ?? 0;
+            var existingTotalTokens = result.LLMResponse?.Usage?.TotalTokens ?? 0;
             result.StepContext = turnResult.UpdatedStepContext;
             result.LLMResponse = turnResult.FinalResponse;
+            result.LLMResponse.Usage ??= new TokenUsage();
+            var retryPromptTokens = result.LLMResponse.Usage.PromptTokens > 0
+                ? result.LLMResponse.Usage.PromptTokens
+                : EstimateTokens(string.Join('\n', result.StepContext.Select(message => message.Content ?? string.Empty)));
+            var retryCompletionTokens = result.LLMResponse.Usage.CompletionTokens > 0
+                ? result.LLMResponse.Usage.CompletionTokens
+                : EstimateTokens(turnResult.FinalResponse.Content);
+            var retryTotalTokens = result.LLMResponse.Usage.TotalTokens > 0
+                ? result.LLMResponse.Usage.TotalTokens
+                : retryPromptTokens + retryCompletionTokens;
+
+            result.LLMResponse.Usage.PromptTokens = existingPromptTokens + retryPromptTokens;
+            result.LLMResponse.Usage.CompletionTokens = existingCompletionTokens + retryCompletionTokens;
+            result.LLMResponse.Usage.TotalTokens = existingTotalTokens + retryTotalTokens;
             result.ToolResults.AddRange(turnResult.ToolResults);
             result.ResponseContent += $"\n\n[RETRY {attempt}]\n{turnResult.FinalResponse.Content}";
             await PublishFinalLlmResponseAsync(turnResult.FinalResponse);
+            await PublishConversationTurnStatsAsync(step.Order, turnResult);
         }
 
         var ticketCompleted = IsTicketCompleted(completedSource, selected.TicketId);
@@ -846,6 +866,9 @@ private async Task<List<Step>> LoadStepsAsync(CancellationToken ct = default)
             var allToolResults = new List<ToolResult>();
             var toolResultsPublishedLive = false;
             var pseudoToolCallRetryCount = 0;
+            var accumulatedPromptTokens = 0;
+            var accumulatedCompletionTokens = 0;
+            var accumulatedTotalTokens = 0;
 
             while (true)
             {
@@ -868,6 +891,27 @@ private async Task<List<Step>> LoadStepsAsync(CancellationToken ct = default)
                 };
 
                 var llmResponse = await _llmClient.GenerateAsync(request, ct);
+                var turnPromptTokens = llmResponse?.Usage?.PromptTokens ?? 0;
+                if (turnPromptTokens <= 0)
+                {
+                    turnPromptTokens = EstimateTokens(string.Join('\n', allMessages.Select(message => message.Content ?? string.Empty)));
+                }
+
+                var turnCompletionTokens = llmResponse?.Usage?.CompletionTokens ?? 0;
+                if (turnCompletionTokens <= 0)
+                {
+                    turnCompletionTokens = EstimateTokens(llmResponse?.Content);
+                }
+
+                var turnTotalTokens = llmResponse?.Usage?.TotalTokens ?? 0;
+                if (turnTotalTokens <= 0)
+                {
+                    turnTotalTokens = turnPromptTokens + turnCompletionTokens;
+                }
+
+                accumulatedPromptTokens += turnPromptTokens;
+                accumulatedCompletionTokens += turnCompletionTokens;
+                accumulatedTotalTokens += turnTotalTokens;
 
                 // Track response content from the last call
                 finalResponseContent = llmResponse.Content;
@@ -968,6 +1012,13 @@ private async Task<List<Step>> LoadStepsAsync(CancellationToken ct = default)
                 });
 
                 var endTime = DateTime.UtcNow;
+                var response = llmResponse ?? new LLMResponse();
+                response.Usage ??= new TokenUsage();
+                response.Usage.PromptTokens = accumulatedPromptTokens > 0 ? accumulatedPromptTokens : response.Usage.PromptTokens;
+                response.Usage.CompletionTokens = accumulatedCompletionTokens > 0 ? accumulatedCompletionTokens : response.Usage.CompletionTokens;
+                response.Usage.TotalTokens = accumulatedTotalTokens > 0
+                    ? accumulatedTotalTokens
+                    : (response.Usage.TotalTokens > 0 ? response.Usage.TotalTokens : response.Usage.PromptTokens + response.Usage.CompletionTokens);
 
                 return new StepExecutionResult
                 {
@@ -976,7 +1027,7 @@ private async Task<List<Step>> LoadStepsAsync(CancellationToken ct = default)
                     EndTime = endTime,
                     DurationMs = (long)(endTime - startTime).TotalMilliseconds,
                     Success = true,
-                    LLMResponse = llmResponse,
+                    LLMResponse = response,
                     ToolResults = allToolResults,
                     ToolResultsPublishedLive = toolResultsPublishedLive,
                     RequestMessagesContent = allMessages.Select(m => $"[{m.Role}] {m.Content}").ToList(),
@@ -1000,6 +1051,16 @@ private async Task<List<Step>> LoadStepsAsync(CancellationToken ct = default)
                 Success = false
             };
         }
+    }
+
+    private static int EstimateTokens(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return 0;
+        }
+
+        return Math.Max(1, (int)Math.Ceiling(text.Length / 4.0));
     }
 
     private sealed class TicketItem
@@ -1142,6 +1203,14 @@ private async Task<List<Step>> LoadStepsAsync(CancellationToken ct = default)
         if (SendLlmResponseAsync != null && !string.IsNullOrWhiteSpace(llmResponse.Content))
         {
             await SendLlmResponseAsync(llmResponse.Content);
+        }
+    }
+
+    private async Task PublishConversationTurnStatsAsync(int stepNumber, StepConversationTurnResult turnResult)
+    {
+        if (SendConversationTurnStatsAsync != null)
+        {
+            await SendConversationTurnStatsAsync(stepNumber, turnResult);
         }
     }
 
